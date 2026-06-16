@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PackDuel — Higher / Lower Card Battles</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-void: #080a12;
+    --bg-deep: #0d1020;
+    --bg-surface: #131729;
+    --bg-card: #1a1f35;
+    --bg-raised: #1f2540;
+    --border-subtle: rgba(255,255,255,0.06);
+    --border-mid: rgba(255,255,255,0.12);
+    --border-accent: rgba(139,92,246,0.4);
+    --purple: #8b5cf6;
+    --purple-light: #a78bfa;
+    --purple-dim: rgba(139,92,246,0.15);
+    --green: #22c55e;
+    --green-dim: rgba(34,197,94,0.15);
+    --amber: #f59e0b;
+    --amber-dim: rgba(245,158,11,0.15);
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #475569;
+    --common: #94a3b8;
+    --uncommon: #22c55e;
+    --rare: #3b82f6;
+    --epic: #f59e0b;
+    --font-display: 'Rajdhani', sans-serif;
+    --font-body: 'Inter', sans-serif;
+  }
+
+  html, body { height: 100%; background: var(--bg-void); color: var(--text-primary); font-family: var(--font-body); overflow-x: hidden; }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(135deg, rgba(59,130,246,0.07) 1px, transparent 1px),
+      linear-gradient(45deg, rgba(59,130,246,0.07) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 10%, rgba(59,130,246,0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 80%, rgba(139,92,246,0.05) 0%, transparent 60%);
+  }
+  nav, .page, .create-game-modal-bg { position: relative; z-index: 1; }
+
+  /* ── NAV ── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    height: 56px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    background: rgba(8,10,18,0.85); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .nav-logo { font-family: var(--font-display); font-size: 22px; font-weight: 700; letter-spacing: 1px; color: var(--text-primary); }
+  .nav-logo span { color: var(--purple-light); }
+  .nav-right { display: flex; align-items: center; gap: 12px; }
+  .btn { font-family: var(--font-body); cursor: pointer; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; transition: all 0.15s; }
+  .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-mid); padding: 7px 16px; }
+  .btn-ghost:hover { background: var(--bg-raised); color: var(--text-primary); }
+  .btn-primary { background: var(--purple); color: #fff; padding: 7px 18px; }
+  .btn-primary:hover { background: var(--purple-light); }
+  .btn-danger { background: var(--red); color: #fff; padding: 7px 18px; }
+  .btn-success { background: var(--green); color: #fff; padding: 9px 22px; font-size: 15px; }
+  .btn-success:hover { filter: brightness(1.1); }
+  .wallet-pill { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: 20px; padding: 6px 14px; font-size: 13px; color: var(--purple-light); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .wallet-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+
+  /* ── PAGES ── */
+  .page { display: none; padding-top: 56px; min-height: 100vh; }
+  .page.active { display: block; }
+
+  /* ── LOBBY ── */
+  .lobby-hero {
+    text-align: center; padding: 60px 24px 40px;
+    background: radial-gradient(ellipse 70% 40% at 50% 0%, rgba(139,92,246,0.08) 0%, transparent 70%);
+  }
+  .lobby-title { font-family: var(--font-display); font-size: 52px; font-weight: 700; letter-spacing: 2px; line-height: 1.1; }
+  .lobby-title .vs { color: var(--purple-light); }
+  .lobby-sub { color: var(--text-secondary); font-size: 15px; margin-top: 10px; }
+  .lobby-stats { display: flex; justify-content: center; gap: 32px; margin-top: 28px; }
+  .stat-pill { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 20px; padding: 6px 18px; font-size: 13px; }
+  .stat-pill span { color: var(--purple-light); font-weight: 600; }
+
+  .lobby-body { max-width: 1100px; margin: 0 auto; padding: 0 24px 60px; }
+  .lobby-actions { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+  .lobby-actions h2 { font-family: var(--font-display); font-size: 20px; font-weight: 600; letter-spacing: 0.5px; }
+  .tab-row { display: flex; gap: 4px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 3px; }
+  .tab { background: transparent; border: none; color: var(--text-muted); font-size: 13px; font-family: var(--font-body); padding: 5px 14px; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
+  .tab.active { background: var(--bg-raised); color: var(--text-primary); }
+
+  .games-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+
+  .game-card {
+    background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px;
+    padding: 18px; cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden;
+  }
+  .game-card:hover { border-color: var(--border-accent); background: var(--bg-raised); }
+  .game-card.live::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--purple), var(--blue));
+  }
+  .game-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .game-card-players { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--bg-raised); border: 1px solid var(--border-mid); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-secondary); overflow: hidden; }
+  .vs-badge { font-family: var(--font-display); font-size: 13px; color: var(--purple-light); font-weight: 700; }
+  .status-badge { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .status-waiting { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(245,158,11,0.25); }
+  .status-live { background: var(--green-dim); color: var(--green); border: 1px solid rgba(34,197,94,0.25); }
+  .status-open { background: var(--purple-dim); color: var(--purple-light); border: 1px solid rgba(139,92,246,0.25); }
+  .game-card-meta { display: flex; justify-content: space-between; align-items: flex-end; }
+  .game-meta-left { display: flex; flex-direction: column; gap: 4px; }
+  .meta-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .meta-value { font-size: 14px; color: var(--text-primary); font-weight: 500; }
+  .meta-value.green { color: var(--green); }
+  .pack-type-badge { font-size: 11px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 4px 10px; color: var(--text-secondary); }
+  .spectate-count { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+  .dot-live { width: 6px; height: 6px; border-radius: 50%; background: var(--green); display: inline-block; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .create-game-modal-bg {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.75); backdrop-filter: blur(6px);
+    align-items: center; justify-content: center; padding: 20px;
+  }
+  .create-game-modal-bg.open { display: flex; }
+
+  /* Large pack-picker modal */
+  .modal {
+    background: var(--bg-deep); border: 1px solid var(--border-mid);
+    border-radius: 20px; width: 100%; max-width: 720px;
+    max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 24px 16px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
+  }
+  .modal-title { font-family: var(--font-display); font-size: 22px; font-weight: 700; margin: 0; }
+  .modal-wallet-pill { font-size: 12px; color: var(--purple-light); background: var(--purple-dim); border: 1px solid rgba(139,92,246,0.3); border-radius: 20px; padding: 5px 14px; }
+
+  /* Pack grid */
+  .pack-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 12px; padding: 20px 24px; overflow-y: auto; flex: 1;
+  }
+  .pack-card {
+    background: var(--bg-card); border: 2px solid var(--border-subtle);
+    border-radius: 12px; overflow: hidden; cursor: pointer;
+    transition: all 0.18s; position: relative;
+    display: flex; flex-direction: column;
+  }
+  .pack-card:hover { border-color: rgba(139,92,246,0.5); transform: translateY(-2px); }
+  .pack-card.selected { border-color: var(--purple); box-shadow: 0 0 0 1px var(--purple), 0 0 20px rgba(139,92,246,0.2); }
+  .pack-card-img {
+    width: 100%; height: 160px; object-fit: cover; display: block;
+    background: var(--bg-surface); flex-shrink: 0;
+  }
+  .pack-card-img-placeholder {
+    width: 100%; height: 160px; background: var(--bg-surface); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px;
+  }
+  .pack-card-info { padding: 10px 12px; background: var(--bg-raised); border-top: 1px solid var(--border-subtle); }
+  .pack-card-name { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pack-card-price { font-size: 14px; font-weight: 700; color: var(--green); font-family: var(--font-display); }
+  .pack-selected-check {
+    position: absolute; top: 8px; right: 8px; width: 22px; height: 22px;
+    background: var(--purple); border-radius: 50%; display: none;
+    align-items: center; justify-content: center; font-size: 12px;
+  }
+  .pack-card.selected .pack-selected-check { display: flex; }
+
+  /* Footer bar */
+  .modal-footer {
+    padding: 16px 24px; border-top: 1px solid var(--border-subtle);
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+    background: var(--bg-card);
+  }
+  .modal-footer-cost { display: flex; flex-direction: column; gap: 2px; }
+  .modal-footer-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .modal-footer-total { font-size: 20px; font-weight: 700; color: var(--text-primary); font-family: var(--font-display); }
+  .modal-footer-sub { font-size: 11px; color: var(--text-muted); }
+  .modal-footer-actions { display: flex; gap: 10px; }
+  .modal-footer-actions .btn { padding: 10px 24px; font-size: 15px; }
+
+  .form-input {
+    width: 100%; background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: 8px;
+    color: var(--text-primary); font-family: var(--font-body); font-size: 14px; padding: 10px 14px;
+  }
+
+  /* ── GAME ROOM ── */
+  #page-game { background: var(--bg-void); }
+
+  .vs-text { font-family: var(--font-display); font-size: 28px; font-weight: 700; color: var(--purple-light); line-height: 1; }
+  .pack-counter { font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; }
+
+  .game-arena {
+    padding-top: 56px; min-height: 100vh; display: flex; flex-direction: column;
+  }
+
+  .arena-main {
+    flex: 1; display: grid; grid-template-columns: 1fr auto 1fr;
+    gap: 48px; padding: 32px 24px; align-items: start; max-width: 1400px; margin: 0 auto; width: 100%;
+  }
+
+  .card-zone {
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    border-radius: 16px; width: 100%; height: 420px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    position: relative; overflow: hidden; transition: border-color 0.3s;
+  }
+  @keyframes cardRevealIn {
+    0%   { opacity: 0; transform: scale(0.85) translateY(20px); filter: brightness(2) blur(6px); }
+    40%  { opacity: 1; filter: brightness(1.4) blur(0); }
+    65%  { transform: scale(1.03) translateY(-4px); }
+    80%  { transform: scale(0.98) translateY(1px); }
+    100% { transform: scale(1) translateY(0); filter: brightness(1); }
+  }
+  @keyframes winnerPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0), inset 0 0 0 0 rgba(34,197,94,0); border-color: var(--border-subtle); }
+    20%  { box-shadow: 0 0 0 8px rgba(34,197,94,0.3), inset 0 0 40px 4px rgba(34,197,94,0.15); border-color: var(--green); }
+    50%  { box-shadow: 0 0 0 16px rgba(34,197,94,0.12), inset 0 0 60px 8px rgba(34,197,94,0.1); border-color: var(--green); }
+    100% { box-shadow: 0 0 0 0 rgba(34,197,94,0), inset 0 0 0 0 rgba(34,197,94,0); border-color: var(--green); }
+  }
+  @keyframes loserPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0), inset 0 0 0 0 rgba(239,68,68,0); border-color: var(--border-subtle); filter: brightness(1); }
+    20%  { box-shadow: 0 0 0 8px rgba(239,68,68,0.25), inset 0 0 40px 4px rgba(239,68,68,0.12); border-color: var(--red); }
+    50%  { box-shadow: 0 0 0 12px rgba(239,68,68,0.08), inset 0 0 50px 6px rgba(239,68,68,0.08); border-color: var(--red); filter: brightness(0.85); }
+    100% { box-shadow: 0 0 0 0 rgba(239,68,68,0), inset 0 0 0 0 rgba(239,68,68,0); border-color: var(--red); filter: brightness(0.75); }
+  }
+  .card-zone.winner {
+    border-color: var(--green);
+    animation: winnerPulse 1.4s cubic-bezier(0.22,1,0.36,1) forwards;
+  }
+  .card-zone.loser {
+    border-color: var(--red);
+    animation: loserPulse 1.4s cubic-bezier(0.22,1,0.36,1) forwards;
+  }
+  .final-card-enter { animation: cardRevealIn 0.8s cubic-bezier(0.22,1,0.36,1) both; }
+
+  /* ── Reveal animations ── */
+  @keyframes revealFlash {
+    0%   { background: rgba(139,92,246,0.0); }
+    15%  { background: rgba(139,92,246,0.18); }
+    100% { background: transparent; }
+  }
+  @keyframes labelDrop {
+    0%   { opacity: 0; transform: translateY(-18px); letter-spacing: 6px; }
+    60%  { opacity: 1; transform: translateY(2px); }
+    100% { opacity: 1; transform: translateY(0); letter-spacing: 2px; }
+  }
+  @keyframes valuePunch {
+    0%   { opacity: 0; transform: scale(0.4); filter: blur(8px); }
+    55%  { opacity: 1; transform: scale(1.12); filter: blur(0); }
+    75%  { transform: scale(0.96); }
+    100% { transform: scale(1); }
+  }
+  @keyframes valueGlowCommon   { 0%,100%{text-shadow:0 0 0 transparent} 40%{text-shadow:0 0 24px rgba(148,163,184,0.8), 0 0 48px rgba(148,163,184,0.4)} }
+  @keyframes valueGlowUncommon { 0%,100%{text-shadow:0 0 0 transparent} 40%{text-shadow:0 0 24px rgba(34,197,94,0.9),  0 0 56px rgba(34,197,94,0.5)}  }
+  @keyframes valueGlowRare     { 0%,100%{text-shadow:0 0 0 transparent} 40%{text-shadow:0 0 28px rgba(59,130,246,1.0),  0 0 60px rgba(59,130,246,0.6)} }
+  @keyframes valueGlowEpic     { 0%,100%{text-shadow:0 0 0 transparent} 40%{text-shadow:0 0 32px rgba(245,158,11,1.0),  0 0 72px rgba(245,158,11,0.7)} }
+  @keyframes zonePulse {
+    0%   { box-shadow: inset 0 0 0 0 rgba(139,92,246,0); }
+    30%  { box-shadow: inset 0 0 60px 10px rgba(139,92,246,0.15); }
+    100% { box-shadow: inset 0 0 0 0 rgba(139,92,246,0); }
+  }
+
+  .reveal-stage { text-align: center; padding: 20px; }
+  .reveal-label {
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--text-muted); margin-bottom: 12px;
+    animation: labelDrop 0.5s cubic-bezier(0.22,1,0.36,1) both;
+  }
+  .reveal-value {
+    font-size: 42px; font-weight: 700; font-family: var(--font-display); letter-spacing: 1px;
+    animation: valuePunch 0.6s cubic-bezier(0.22,1,0.36,1) both;
+  }
+  .reveal-value.common   { color: var(--common);   animation: valuePunch 0.6s cubic-bezier(0.22,1,0.36,1) both, valueGlowCommon   1.2s ease-out 0.3s both; }
+  .reveal-value.uncommon { color: var(--uncommon); animation: valuePunch 0.6s cubic-bezier(0.22,1,0.36,1) both, valueGlowUncommon 1.2s ease-out 0.3s both; }
+  .reveal-value.rare     { color: var(--rare);     animation: valuePunch 0.6s cubic-bezier(0.22,1,0.36,1) both, valueGlowRare     1.4s ease-out 0.3s both; }
+  .reveal-value.epic     { color: var(--epic);     animation: valuePunch 0.6s cubic-bezier(0.22,1,0.36,1) both, valueGlowEpic     1.6s ease-out 0.3s both; }
+  .card-zone.reveal-flash { animation: revealFlash 0.8s ease-out both, zonePulse 1.2s ease-out both; }
+
+  .card-final { width: 100%; height: 100%; display: flex; flex-direction: column; }
+  .card-img-wrap { flex: 1; overflow: hidden; position: relative; }
+  .card-img-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .card-img-placeholder { width: 100%; height: 100%; background: var(--bg-surface); display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 13px; }
+  .card-info-bar { padding: 12px 14px; background: var(--bg-raised); border-top: 1px solid var(--border-subtle); }
+  .card-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+  .card-info-row { display: flex; align-items: center; justify-content: space-between; }
+  .card-value-display { font-size: 18px; font-weight: 700; color: var(--green); font-family: var(--font-display); }
+  .rarity-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+  .rarity-tag.common { background: rgba(148,163,184,0.15); color: var(--common); }
+  .rarity-tag.uncommon { background: rgba(34,197,94,0.15); color: var(--uncommon); }
+  .rarity-tag.rare { background: rgba(59,130,246,0.15); color: var(--rare); }
+  .rarity-tag.epic { background: rgba(245,158,11,0.15); color: var(--epic); }
+
+  .arena-center-col { display: flex; flex-direction: column; align-items: center; gap: 20px; width: 240px; padding-top: 4px; }
+
+  .pack-display { text-align: center; }
+  .pack-icon { width: 160px; height: 210px; background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: 14px; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; font-size: 56px; position: relative; overflow: hidden; }
+  .pack-icon.opening { animation: packShake 0.4s infinite; }
+  .pack-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  @keyframes packShake { 0%,100%{transform:rotate(0deg)} 25%{transform:rotate(-3deg)} 75%{transform:rotate(3deg)} }
+  .pack-revealing-label { font-size: 11px; color: var(--amber); font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+
+  /* SELECTION PHASE */
+  .selection-overlay {
+    position: absolute; inset: 0; background: var(--bg-card);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 16px; z-index: 10; transition: opacity 0.3s;
+  }
+  .selection-overlay.hidden { opacity: 0; pointer-events: none; }
+  .pick-btn {
+    width: 80%; padding: 12px; border: 1px solid var(--border-mid); border-radius: 10px;
+    background: var(--bg-surface); color: var(--text-secondary); font-family: var(--font-body);
+    font-size: 14px; cursor: pointer; transition: all 0.15s; margin: 6px 0; font-weight: 500;
+  }
+  .pick-btn:hover { background: var(--purple-dim); border-color: var(--purple); color: var(--purple-light); }
+  .pick-btn.selected { background: var(--purple-dim); border-color: var(--purple); color: var(--purple-light); }
+  .pick-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
+
+  /* TIMER */
+  .timer-ring { position: relative; width: 80px; height: 80px; }
+  .timer-ring svg { position: absolute; top: 0; left: 0; transform: rotate(-90deg); }
+  .timer-ring circle.bg { fill: none; stroke: var(--bg-raised); stroke-width: 4; }
+  .timer-ring circle.progress { fill: none; stroke: var(--purple); stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset 1s linear, stroke 0.3s; }
+  .timer-num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-size: 26px; font-weight: 700; }
+
+  .waiting-msg { font-size: 12px; color: var(--text-muted); text-align: center; }
+  .lock-indicator { font-size: 12px; padding: 5px 12px; border-radius: 20px; font-weight: 600; display: none; }
+  .lock-indicator.show { display: inline-block; }
+  .lock-you { background: var(--green-dim); color: var(--green); }
+  .lock-opponent { background: var(--purple-dim); color: var(--purple-light); }
+  .bet-summary { font-size: 12px; color: var(--text-muted); text-align: center; line-height: 1.6; }
+  .bet-highlight { color: var(--text-primary); font-weight: 600; }
+
+  /* result-banner CSS replaced by result page */
+
+  /* BOTTOM PULLS */
+  .game-bottom { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--border-subtle); background: var(--bg-deep); }
+  .pull-panel { padding: 14px 24px; }
+  .pull-panel:first-child { border-right: 1px solid var(--border-subtle); }
+  .pull-panel-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .pull-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--purple); }
+  .pull-card-row { display: flex; align-items: center; gap: 10px; }
+  .pull-thumb { width: 36px; height: 36px; border-radius: 6px; background: var(--bg-surface); border: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  .pull-empty { font-size: 13px; color: var(--text-muted); font-style: italic; }
+  .pull-card-name { font-size: 13px; font-weight: 600; }
+  .pull-card-value { font-size: 12px; color: var(--green); }
+
+  /* SPECTATOR */
+
+
+  /* EMPTY STATE */
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+  .empty-state h3 { font-family: var(--font-display); font-size: 20px; color: var(--text-secondary); margin-bottom: 8px; }
+  .empty-state p { font-size: 14px; }
+
+  /* ── RESULTS PAGE ── */
+  #page-result { background: var(--bg-void); min-height: 100vh; }
+  .result-page-inner {
+    max-width: 860px; margin: 0 auto; padding: 60px 24px 80px;
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+  }
+  .result-eyebrow { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 16px; }
+  .result-headline {
+    font-family: var(--font-display); font-size: 72px; font-weight: 700;
+    letter-spacing: 2px; line-height: 1; margin-bottom: 8px;
+  }
+  .result-headline.win  { color: var(--green); text-shadow: 0 0 40px rgba(34,197,94,0.4); }
+  .result-headline.lose { color: var(--red);   text-shadow: 0 0 40px rgba(239,68,68,0.3); }
+  .result-headline.tie  { color: var(--amber);  text-shadow: 0 0 40px rgba(245,158,11,0.3); }
+  .result-winner-name { font-size: 22px; font-weight: 600; color: var(--text-primary); margin-bottom: 24px; }
+  .result-total-box {
+    background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.25);
+    border-radius: 14px; padding: 14px 40px; margin-bottom: 8px;
+  }
+  .result-total-label { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--green); margin-bottom: 4px; }
+  .result-total-value { font-family: var(--font-display); font-size: 52px; font-weight: 700; color: var(--text-primary); }
+  .result-vs-breakdown { font-size: 13px; color: var(--text-muted); margin-bottom: 48px; }
+  .result-vs-breakdown span { color: var(--text-secondary); font-weight: 500; }
+  .result-vs-breakdown .higher { color: var(--green); font-weight: 600; }
+
+  .result-cards-label {
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--purple-light); margin-bottom: 6px; align-self: flex-start;
+  }
+  .result-cards-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; align-self: flex-start; }
+  .result-cards-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; margin-bottom: 48px;
+  }
+  .result-card-item {
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    border-radius: 14px; overflow: hidden; display: flex; flex-direction: column;
+    transition: border-color 0.2s;
+  }
+  .result-card-item.winning-card { border-color: rgba(34,197,94,0.4); }
+  .result-card-item.losing-card  { border-color: rgba(239,68,68,0.25); opacity: 0.75; }
+  .result-card-badge {
+    padding: 6px 14px; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+  }
+  .result-card-badge.win-badge  { background: rgba(34,197,94,0.15); color: var(--green); }
+  .result-card-badge.lose-badge { background: rgba(239,68,68,0.12); color: var(--red); }
+  .result-card-body { padding: 18px; display: flex; align-items: center; gap: 14px; }
+  .result-card-thumb { width: 52px; height: 52px; border-radius: 8px; background: var(--bg-surface); border: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
+  .result-card-details { text-align: left; }
+  .result-card-name { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .result-card-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+  .result-card-value-row { display: flex; align-items: center; gap: 8px; }
+  .result-card-value { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--green); }
+  .result-card-rarity { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+  .result-card-owner { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+  .result-actions { display: flex; gap: 12px; justify-content: center; }
+  .result-actions .btn { padding: 12px 32px; font-size: 15px; font-weight: 600; }
+
+  /* CONNECT WALLET SCREEN */
+  .connect-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 56px); text-align: center; padding: 40px; }
+  .connect-screen h1 { font-family: var(--font-display); font-size: 36px; font-weight: 700; margin-bottom: 10px; }
+  .connect-screen p { color: var(--text-secondary); margin-bottom: 28px; font-size: 15px; }
+  .phantom-btn { background: #ab9ff2; color: #1a1a2e; font-weight: 700; font-size: 16px; padding: 14px 32px; border-radius: 12px; border: none; cursor: pointer; font-family: var(--font-body); display: flex; align-items: center; gap: 10px; margin: 0 auto; transition: filter 0.15s; }
+  .phantom-btn:hover { filter: brightness(1.1); }
+  .phantom-logo { width: 24px; height: 24px; background: #1a1a2e; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">PACK<span>DUEL</span></div>
+  <div class="nav-right" id="nav-right">
+    <button class="btn btn-ghost" onclick="showConnectPrompt()">Connect Wallet</button>
+  </div>
+</nav>
+
+<!-- PAGE: LOBBY -->
+<div class="page active" id="page-lobby">
+  <div class="lobby-hero">
+    <div class="lobby-title">HIGHER <span class="vs">VS</span> LOWER</div>
+    <div class="lobby-sub">Open a pack. Compare values. Winner takes both cards.</div>
+    <div class="lobby-stats">
+      <div class="stat-pill"><span id="stat-active">10</span> live battles</div>
+      <div class="stat-pill"><span id="stat-waiting">10</span> waiting for opponent</div>
+      <div class="stat-pill"><span>$0.50</span> platform fee per player</div>
+    </div>
+  </div>
+
+  <div class="lobby-body">
+    <div class="lobby-actions">
+      <div style="display:flex;align-items:center;gap:16px">
+        <h2>Game Lobby</h2>
+        <div class="tab-row">
+          <button class="tab active" onclick="filterGames('all',this)">All</button>
+          <button class="tab" onclick="filterGames('open',this)">Open</button>
+          <button class="tab" onclick="filterGames('live',this)">Live</button>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="openCreateModal()">+ Create Game</button>
+    </div>
+
+    <div class="games-grid" id="games-grid"></div>
+  </div>
+</div>
+
+<!-- PAGE: GAME ROOM -->
+<div class="page" id="page-game">
+<div id="spectator-bar" style="display:none"></div>
+
+  <!-- JOIN BANNER for open games -->
+  <div id="join-banner" style="display:none;position:fixed;top:56px;left:0;right:0;z-index:48;background:rgba(139,92,246,0.12);border-bottom:1px solid rgba(139,92,246,0.3);padding:10px 24px;align-items:center;justify-content:space-between;backdrop-filter:blur(8px);">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:13px;color:var(--purple-light);font-weight:600">⚔️ Spot available — join this battle?</span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button class="btn btn-ghost" style="padding:6px 14px;font-size:13px" onclick="showLobby()">← Back</button>
+      <button class="btn btn-primary" style="padding:7px 20px;font-size:14px;font-weight:600" onclick="joinFromGameRoom()">Join Battle</button>
+    </div>
+  </div>
+
+
+
+  <div class="game-arena" id="game-arena">
+    <div class="arena-main">
+
+      <!-- PLAYER A ZONE -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;justify-self:center;width:100%;max-width:315px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="avatar" id="avatar-a">A</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text-primary)" id="name-a">Player A</div>
+        </div>
+        <div class="card-zone" id="zone-a" style="justify-self:unset;width:100%;max-width:unset">
+        <div class="selection-overlay" id="overlay-a">
+          <!-- Pick buttons only shown when this is YOUR zone -->
+          <div id="overlay-a-picks" style="display:none;flex-direction:column;align-items:center;width:100%">
+            <div class="pick-label">Who pulls higher?</div>
+            <button class="pick-btn" id="pick-a-self" onclick="makePick('A','A')">🙋 Me (Player A)</button>
+            <button class="pick-btn" id="pick-a-opp" onclick="makePick('A','B')">🎯 Opponent (Player B)</button>
+          </div>
+          <!-- Waiting state shown to player B when viewing opponent zone -->
+          <div id="overlay-a-waiting" style="display:none;flex-direction:column;align-items:center;gap:10px">
+            <div style="font-size:28px">⏳</div>
+            <div style="font-size:13px;color:var(--text-muted);text-align:center">Opponent is picking...</div>
+          </div>
+        </div>
+        <div class="reveal-stage" id="reveal-a" style="display:none">
+          <div class="reveal-label" id="reveal-label-a">Issued</div>
+          <div class="reveal-value" id="reveal-value-a">—</div>
+        </div>
+        <div class="card-final" id="final-a" style="display:none">
+          <div class="card-img-wrap">
+            <div class="card-img-placeholder" id="img-a">🃏</div>
+          </div>
+          <div class="card-info-bar">
+            <div class="card-name" id="cardname-a">Card Name</div>
+            <div class="card-info-row">
+              <div class="card-value-display" id="cardval-a">$0.00</div>
+              <div class="rarity-tag common" id="cardrar-a">Common</div>
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+
+      <!-- CENTRE COLUMN -->
+      <div class="arena-center-col">
+        <!-- VS -->
+        <div style="font-family:var(--font-display);font-size:36px;font-weight:700;color:var(--purple-light);letter-spacing:2px;text-align:center;line-height:1;margin-top:0">VS</div>
+
+        <div class="pack-display">
+          <div class="pack-icon" id="pack-icon">🎴</div>
+          <div class="pack-revealing-label" id="pack-status-label" style="display:none">Revealing 1/1</div>
+        </div>
+
+        <!-- TIMER -->
+        <div id="timer-wrap" style="text-align:center">
+          <div class="timer-ring">
+            <svg viewBox="0 0 80 80" width="80" height="80">
+              <circle class="bg" cx="40" cy="40" r="34"/>
+              <circle class="progress" id="timer-circle" cx="40" cy="40" r="34" stroke-dasharray="213.6" stroke-dashoffset="0"/>
+            </svg>
+            <div class="timer-num" id="timer-num">10</div>
+          </div>
+          <div class="waiting-msg" style="margin-top:8px" id="timer-msg">Make your pick</div>
+        </div>
+
+        <!-- LOCK INDICATORS -->
+        <div id="lock-wrap" style="display:none;text-align:center;display:flex;flex-direction:column;gap:6px;align-items:center">
+          <div class="lock-indicator lock-you" id="lock-you">✓ You locked in</div>
+          <div class="lock-indicator lock-opponent" id="lock-opp">⏳ Opponent picking...</div>
+          <div class="bet-summary" id="bet-summary" style="display:none"></div>
+        </div>
+
+        <!-- RESULT INDICATOR (centre) -->
+        <div id="result-indicator" style="display:none;text-align:center">
+          <div style="font-family:var(--font-display);font-size:14px;color:var(--text-muted)">Higher card wins</div>
+        </div>
+      </div>
+
+      <!-- PLAYER B ZONE -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;justify-self:center;width:100%;max-width:315px">
+        <div style="display:flex;align-items:center;gap:8px" id="player-b-header">
+          <div class="avatar" id="avatar-b">B</div>
+          <div style="font-size:14px;font-weight:600;color:var(--text-primary)" id="name-b">Player B</div>
+        </div>
+        <div class="card-zone" id="zone-b" style="justify-self:unset;width:100%;max-width:unset">
+        <div class="selection-overlay" id="overlay-b">
+          <!-- Pick buttons only shown when this is YOUR zone -->
+          <div id="overlay-b-picks" style="display:none;flex-direction:column;align-items:center;width:100%">
+            <div class="pick-label">Who pulls higher?</div>
+            <button class="pick-btn" id="pick-b-self" onclick="makePick('B','B')">🙋 Me (Player B)</button>
+            <button class="pick-btn" id="pick-b-opp" onclick="makePick('B','A')">🎯 Opponent (Player A)</button>
+          </div>
+          <!-- Waiting state shown to player A when viewing opponent zone -->
+          <div id="overlay-b-waiting" style="display:none;flex-direction:column;align-items:center;gap:10px">
+            <div style="font-size:28px">⏳</div>
+            <div style="font-size:13px;color:var(--text-muted);text-align:center">Opponent is picking...</div>
+          </div>
+        </div>
+        <div class="reveal-stage" id="reveal-b" style="display:none">
+          <div class="reveal-label" id="reveal-label-b">Issued</div>
+          <div class="reveal-value" id="reveal-value-b">—</div>
+        </div>
+        <div class="card-final" id="final-b" style="display:none">
+          <div class="card-img-wrap">
+            <div class="card-img-placeholder" id="img-b">🃏</div>
+          </div>
+          <div class="card-info-bar">
+            <div class="card-name" id="cardname-b">Card Name</div>
+            <div class="card-info-row">
+              <div class="card-value-display" id="cardval-b">$0.00</div>
+              <div class="rarity-tag common" id="cardrar-b">Common</div>
+            </div>
+          </div>
+        </div>
+        </div>
+        <div id="zone-b-join" style="display:none">
+          <button class="btn btn-primary" style="padding:10px 32px;font-size:15px;font-weight:600" onclick="joinFromGameRoom()">⚔️ Join Battle</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- BOTTOM PULLS -->
+    <div class="game-bottom">
+      <div class="pull-panel">
+        <div class="pull-panel-label"><span class="pull-dot"></span><span id="pull-label-a">PLAYER A PULLS</span></div>
+        <div class="pull-empty" id="pull-empty-a">No cards yet</div>
+        <div class="pull-card-row" id="pull-row-a" style="display:none">
+          <div class="pull-thumb" id="pull-thumb-a">🃏</div>
+          <div>
+            <div class="pull-card-name" id="pull-name-a">—</div>
+            <div class="pull-card-value" id="pull-val-a">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="pull-panel">
+        <div class="pull-panel-label"><span class="pull-dot"></span><span id="pull-label-b">PLAYER B PULLS</span></div>
+        <div class="pull-empty" id="pull-empty-b">No cards yet</div>
+        <div class="pull-card-row" id="pull-row-b" style="display:none">
+          <div class="pull-thumb" id="pull-thumb-b">🃏</div>
+          <div>
+            <div class="pull-card-name" id="pull-name-b">—</div>
+            <div class="pull-card-value" id="pull-val-b">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CREATE GAME MODAL -->
+<div class="create-game-modal-bg" id="create-modal">
+  <div class="modal">
+
+    <!-- HEADER -->
+    <div class="modal-header">
+      <div class="modal-title">Choose Your Pack</div>
+      <div class="modal-wallet-pill" id="modal-wallet-display">Connect wallet first</div>
+    </div>
+
+    <!-- PACK GRID -->
+    <div class="pack-grid" id="pack-grid"></div>
+
+    <!-- FOOTER -->
+    <div class="modal-footer">
+      <div class="modal-footer-cost">
+        <div class="modal-footer-label">Total to send</div>
+        <div class="modal-footer-total" id="cost-total">—</div>
+        <div class="modal-footer-sub" id="cost-breakdown-sub">Select a pack to continue</div>
+      </div>
+      <div class="modal-footer-actions">
+        <button class="btn btn-ghost" onclick="closeCreateModal()">Cancel</button>
+        <button class="btn btn-primary" id="create-confirm-btn" onclick="createGame()" disabled style="opacity:0.5;cursor:not-allowed">Create Battle</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- result-banner replaced by page-result -->
+
+<!-- PAGE: RESULTS -->
+<div class="page" id="page-result">
+  <div class="result-page-inner">
+    <div class="result-eyebrow">PACKDUEL · RESULT</div>
+    <div class="result-headline" id="result-headline">YOU WIN</div>
+    <div class="result-winner-name" id="result-winner-name"></div>
+    <div class="result-total-box" id="result-total-box">
+      <div class="result-total-label">TOTAL WIN VALUE</div>
+      <div class="result-total-value" id="result-total-value">$0.00</div>
+    </div>
+    <div class="result-vs-breakdown" id="result-vs-breakdown"></div>
+
+    <div class="result-cards-label">PULLED CARDS</div>
+    <div class="result-cards-title">Battle Cards</div>
+    <div class="result-cards-grid" id="result-cards-grid"></div>
+
+    <div class="result-actions">
+      <button class="btn btn-ghost" onclick="showLobby()">← Lobby</button>
+      <button class="btn btn-success" onclick="playAgainFromResult()">⚔️ Play Again</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const CIRCUMFERENCE = 2 * Math.PI * 34;
+let walletConnected = false;
+let walletAddress = '';
+let currentFilter = 'all';
+let timerInterval = null;
+let timerVal = 10;
+let isSpectator = false;
+let myRole = 'A';
+let pickA = null, pickB = null, firstPick = null;
+let gamePhase = 'selection';
+let currentViewingGame = null;
+let viewingOpenGame = false;
+
+const PACK_TYPES = [
+  { name: 'One Piece Blue',    category: 'One Piece', cost: 50  },
+  { name: 'One Piece',         category: 'One Piece', cost: 250 },
+  { name: 'Starter Pokémon',   category: 'Pokémon',   cost: 25  },
+  { name: 'Elite Pokémon',     category: 'Pokémon',   cost: 50  },
+  { name: 'Legendary Pokémon', category: 'Pokémon',   cost: 250 },
+  { name: 'Grail Pokémon',     category: 'Pokémon',   cost: 1000},
+  { name: 'Anime Pop Culture', category: 'Anime',     cost: 75  },
+  { name: 'Sealed Gacha Pack', category: 'Sealed',    cost: 80  },
+  { name: 'Water Pack',        category: 'Water',     cost: 100 },
+  { name: 'Sports Gacha Pack', category: 'Sports',    cost: 100 },
+];
+
+const mockGames = [
+  { id: 1,  status: 'live', playerA: '7xKp...mNvQ', playerB: 'Netti...QR2', packType: 'One Piece Blue',    packCategory: 'One Piece', packCost: 50,   spectators: 14, prizeA: 34,  prizeB: 22  },
+  { id: 2,  status: 'open', playerA: '3yAa...PoUT', playerB: null,           packType: 'One Piece Blue',    packCategory: 'One Piece', packCost: 50,   spectators: 0,  prizeA: 0,   prizeB: 0   },
+  { id: 3,  status: 'live', playerA: 'Dax...77fQ',  playerB: 'Kai...9mPL',  packType: 'One Piece',         packCategory: 'One Piece', packCost: 250,  spectators: 31, prizeA: 180, prizeB: 240 },
+  { id: 4,  status: 'open', playerA: 'Mika...88Xx', playerB: null,           packType: 'One Piece',         packCategory: 'One Piece', packCost: 250,  spectators: 2,  prizeA: 0,   prizeB: 0   },
+  { id: 5,  status: 'live', playerA: 'Zara...44Bb', playerB: 'Rex...55Cc',  packType: 'Starter Pokémon',   packCategory: 'Pokémon',   packCost: 25,   spectators: 7,  prizeA: 18,  prizeB: 22  },
+  { id: 6,  status: 'open', playerA: 'Sol...99Dd',  playerB: null,           packType: 'Starter Pokémon',   packCategory: 'Pokémon',   packCost: 25,   spectators: 1,  prizeA: 0,   prizeB: 0   },
+  { id: 7,  status: 'live', playerA: 'Ace...22Ee',  playerB: 'Bry...33Ff',  packType: 'Elite Pokémon',     packCategory: 'Pokémon',   packCost: 50,   spectators: 9,  prizeA: 44,  prizeB: 56  },
+  { id: 8,  status: 'open', playerA: 'Cam...44Gg',  playerB: null,           packType: 'Elite Pokémon',     packCategory: 'Pokémon',   packCost: 50,   spectators: 0,  prizeA: 0,   prizeB: 0   },
+  { id: 9,  status: 'live', playerA: 'Dee...55Hh',  playerB: 'Eli...66Ii',  packType: 'Legendary Pokémon', packCategory: 'Pokémon',   packCost: 250,  spectators: 22, prizeA: 200, prizeB: 310 },
+  { id: 10, status: 'open', playerA: 'Fin...77Jj',  playerB: null,           packType: 'Legendary Pokémon', packCategory: 'Pokémon',   packCost: 250,  spectators: 4,  prizeA: 0,   prizeB: 0   },
+  { id: 11, status: 'live', playerA: 'Gil...88Kk',  playerB: 'Hal...99Ll',  packType: 'Grail Pokémon',     packCategory: 'Pokémon',   packCost: 1000, spectators: 58, prizeA: 900, prizeB: 1200},
+  { id: 12, status: 'open', playerA: 'Ida...11Mm',  playerB: null,           packType: 'Grail Pokémon',     packCategory: 'Pokémon',   packCost: 1000, spectators: 12, prizeA: 0,   prizeB: 0   },
+  { id: 13, status: 'live', playerA: 'Jay...22Nn',  playerB: 'Kia...33Oo',  packType: 'Anime Pop Culture', packCategory: 'Anime',     packCost: 75,   spectators: 5,  prizeA: 60,  prizeB: 90  },
+  { id: 14, status: 'open', playerA: 'Leo...44Pp',  playerB: null,           packType: 'Anime Pop Culture', packCategory: 'Anime',     packCost: 75,   spectators: 0,  prizeA: 0,   prizeB: 0   },
+  { id: 15, status: 'live', playerA: 'Max...55Qq',  playerB: 'Nia...66Rr',  packType: 'Sealed Gacha Pack', packCategory: 'Sealed',    packCost: 80,   spectators: 3,  prizeA: 70,  prizeB: 85  },
+  { id: 16, status: 'open', playerA: 'Oli...77Ss',  playerB: null,           packType: 'Sealed Gacha Pack', packCategory: 'Sealed',    packCost: 80,   spectators: 0,  prizeA: 0,   prizeB: 0   },
+  { id: 17, status: 'live', playerA: 'Pia...88Tt',  playerB: 'Qui...99Uu',  packType: 'Water Pack',        packCategory: 'Water',     packCost: 100,  spectators: 8,  prizeA: 80,  prizeB: 110 },
+  { id: 18, status: 'open', playerA: 'Rob...11Vv',  playerB: null,           packType: 'Water Pack',        packCategory: 'Water',     packCost: 100,  spectators: 0,  prizeA: 0,   prizeB: 0   },
+  { id: 19, status: 'live', playerA: 'Sam...22Ww',  playerB: 'Tia...33Xx',  packType: 'Sports Gacha Pack', packCategory: 'Sports',    packCost: 100,  spectators: 11, prizeA: 95,  prizeB: 105 },
+  { id: 20, status: 'open', playerA: 'Uma...44Yy',  playerB: null,           packType: 'Sports Gacha Pack', packCategory: 'Sports',    packCost: 100,  spectators: 0,  prizeA: 0,   prizeB: 0   },
+];
+
+const mockCardA = { name: "Acerola's Mischief", year: 2025, grade: 'Ungraded', rarity: 'uncommon', value: 34.00 };
+const mockCardB = { name: 'Marnie Full Art', year: 2024, grade: 'EX-MT 6', rarity: 'rare', value: 72.50 };
+
+function renderGames() {
+  const grid = document.getElementById('games-grid');
+  const filtered = currentFilter === 'all' ? mockGames : mockGames.filter(g => {
+    if (currentFilter === 'open') return g.status === 'open';
+    if (currentFilter === 'live') return g.status === 'live';
+    return true;
+  });
+
+  if (!filtered.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><h3>No games found</h3><p>Create one to get started.</p></div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(g => {
+    const isOpen = g.status === 'open' && !g.playerB;
+    const isLive = g.status === 'live';
+    // Join button: purple+clickable when open, ghost+non-functional when live
+    const joinBtn = isOpen
+      ? `<button class="btn btn-primary" style="padding:6px 18px;font-size:13px;font-weight:600;flex-shrink:0" onclick="joinGame(${g.id}, event)">Join →</button>`
+      : `<button class="btn btn-ghost" style="padding:6px 18px;font-size:13px;font-weight:500;flex-shrink:0;opacity:0.5;cursor:default" onclick="spectateGame(${g.id}, event)">Join →</button>`;
+    return `
+    <div class="game-card ${isLive ? 'live' : ''}" onclick="spectateGame(${g.id}, event)" style="cursor:pointer;display:flex;flex-direction:column;gap:16px;padding:22px 20px">
+
+      <!-- ROW 1: Players -->
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="avatar">${g.playerA.charAt(0)}</div>
+        <span style="font-size:13px;font-weight:500;color:var(--text-secondary)">${g.playerA}</span>
+        <span class="vs-badge" style="margin:0 4px">VS</span>
+        ${g.playerB
+          ? `<div class="avatar">${g.playerB.charAt(0)}</div><span style="font-size:13px;font-weight:500;color:var(--text-secondary)">${g.playerB}</span>`
+          : `<div class="avatar" style="border-style:dashed;color:var(--text-muted)">?</div><span style="font-size:13px;color:var(--text-muted);font-style:italic">Waiting...</span>`
+        }
+      </div>
+
+      <!-- ROW 2: Pack name -->
+      <div style="font-size:15px;font-weight:600;color:var(--text-primary)">${g.packType}</div>
+
+      <!-- ROW 3: Cost | Prize | Status+Join stacked -->
+      <div style="display:flex;align-items:flex-end;gap:24px">
+        <div class="game-meta-left" style="gap:6px">
+          <div class="meta-label">Pack cost</div>
+          <div class="meta-value" style="font-size:16px">$${g.packCost.toLocaleString()}</div>
+        </div>
+        <div class="game-meta-left" style="gap:6px">
+          <div class="meta-label">Prize pool</div>
+          <div class="meta-value green" style="font-size:16px">$${(g.packCost * 2).toLocaleString()}</div>
+        </div>
+        <div style="margin-left:auto;display:flex;flex-direction:column;align-items:center;gap:10px">
+          <span class="status-badge ${isLive ? 'status-live' : 'status-open'}">${isLive ? '● Live' : 'Open'}</span>
+          ${joinBtn}
+        </div>
+      </div>
+
+    </div>`;
+  }).join('');
+}
+
+function filterGames(f, el) {
+  currentFilter = f;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderGames();
+}
+
+function showConnectPrompt() {
+  walletConnected = true;
+  walletAddress = '3yAa...PoUT';
+  document.getElementById('nav-right').innerHTML = `
+    <button class="btn btn-ghost" onclick="showLobby()">Lobby</button>
+    <div class="wallet-pill"><span class="wallet-dot"></span>${walletAddress}</div>
+  `;
+  document.getElementById('modal-wallet-display').textContent = walletAddress;
+  renderGames();
+}
+
+function openCreateModal() {
+  if (!walletConnected) { showConnectPrompt(); return; }
+  selectedPack = null;
+  document.getElementById('cost-total').textContent = '—';
+  document.getElementById('cost-breakdown-sub').textContent = 'Select a pack to continue';
+  const btn = document.getElementById('create-confirm-btn');
+  btn.disabled = true; btn.style.opacity = '0.5'; btn.style.cursor = 'not-allowed';
+  document.getElementById('create-modal').classList.add('open');
+  renderPackGrid();
+}
+function closeCreateModal() { document.getElementById('create-modal').classList.remove('open'); }
+
+// ── Pack image mapping ──
+// Upload images to your GitHub repo and update YOUR_USERNAME / YOUR_REPO below.
+// File names must match exactly (case-sensitive).
+const GITHUB_BASE = 'https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/packs';
+const PACK_IMAGES = {
+  'Starter Pokémon':   `${GITHUB_BASE}/starter-pokemon.png`,
+  'One Piece Blue':    `${GITHUB_BASE}/one-piece-blue.png`,
+  'Elite Pokémon':     `${GITHUB_BASE}/elite-pokemon.png`,
+  'Anime Pop Culture': `${GITHUB_BASE}/anime-pop-culture.png`,
+  'Sealed Gacha Pack': `${GITHUB_BASE}/sealed-gacha-pack.png`,
+  'Water Pack':        `${GITHUB_BASE}/water-pack.png`,
+  'Sports Gacha Pack': `${GITHUB_BASE}/sports-gacha-pack.png`,
+  'One Piece':         `${GITHUB_BASE}/one-piece.png`,
+  'Legendary Pokémon': `${GITHUB_BASE}/legendary-pokemon.png`,
+  'Grail Pokémon':     `${GITHUB_BASE}/grail-pokemon.png`,
+};
+
+let selectedPack = null;
+
+// Pack list — category order: Pokémon, One Piece, Anime, Water, Sealed, Sports
+// Within each category: lowest to highest cost
+const PACK_LIST = [
+  { name: 'Starter Pokémon',   category: 'Pokémon',   cost: 25   },
+  { name: 'Elite Pokémon',     category: 'Pokémon',   cost: 50   },
+  { name: 'Legendary Pokémon', category: 'Pokémon',   cost: 250  },
+  { name: 'Grail Pokémon',     category: 'Pokémon',   cost: 1000 },
+  { name: 'One Piece Blue',    category: 'One Piece', cost: 50   },
+  { name: 'One Piece',         category: 'One Piece', cost: 250  },
+  { name: 'Anime Pop Culture', category: 'Anime',     cost: 75   },
+  { name: 'Water Pack',        category: 'Water',     cost: 100  },
+  { name: 'Sealed Gacha Pack', category: 'Sealed',    cost: 80   },
+  { name: 'Sports Gacha Pack', category: 'Sports',    cost: 100  },
+];
+
+function renderPackGrid() {
+  const grid = document.getElementById('pack-grid');
+  if (!grid) return;
+  grid.innerHTML = PACK_LIST.map((p, i) => {
+    const imgUrl = PACK_IMAGES[p.name];
+    const imgHTML = imgUrl
+      ? `<img class="pack-card-img" src="${imgUrl}" alt="${p.name}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="pack-card-img-placeholder" style="display:none">🎴</div>`
+      : `<div class="pack-card-img-placeholder">🎴</div>`;
+    return `
+      <div class="pack-card" id="pack-card-${i}" onclick="selectPack(${i})">
+        <div class="pack-selected-check">✓</div>
+        ${imgHTML}
+        <div class="pack-card-info">
+          <div class="pack-card-name">${p.name}</div>
+          <div class="pack-card-price">$${p.cost.toLocaleString()}.00</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function selectPack(i) {
+  const p = PACK_LIST[i];
+  selectedPack = p;
+  document.querySelectorAll('.pack-card').forEach(el => el.classList.remove('selected'));
+  const el = document.getElementById('pack-card-' + i);
+  if (el) el.classList.add('selected');
+  const total = p.cost + 0.5;
+  document.getElementById('cost-total').textContent = `$${total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  document.getElementById('cost-breakdown-sub').textContent = `$${p.cost.toLocaleString()} pack + $0.50 platform fee`;
+  const btn = document.getElementById('create-confirm-btn');
+  btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer';
+}
+
+function getSelectedPack() {
+  return selectedPack;
+}
+
+function updateCost() { /* handled by selectPack now */ }
+
+function createGame() {
+  const p = getSelectedPack();
+  if (!p) return;
+  closeCreateModal();
+  isSpectator = false;
+  myRole = 'A';
+  launchGame('3yAa...PoUT', null, p.name);
+}
+
+function spectateGame(id, event) {
+  // Don't fire if the join button was clicked
+  if (event && event.target.closest('button')) return;
+  if (!walletConnected) { showConnectPrompt(); return; }
+  const g = mockGames.find(x => x.id === id);
+  isSpectator = true;
+  currentViewingGame = g;
+  launchGame(g.playerA, g.playerB, g.packType, g.status === 'open');
+}
+
+function joinGame(id, event) {
+  if (event) event.stopPropagation();
+  if (!walletConnected) { showConnectPrompt(); return; }
+  const g = mockGames.find(x => x.id === id);
+  isSpectator = false;
+  myRole = 'B';
+  g.playerB = walletAddress;
+  g.status = 'live';
+  currentViewingGame = g;
+  launchGame(g.playerA, walletAddress, g.packType, false);
+}
+
+function joinFromGameRoom() {
+  if (!currentViewingGame) return;
+  joinGame(currentViewingGame.id, null);
+}
+
+function launchGame(pA, pB, packName, isOpenGame) {
+  viewingOpenGame = !!isOpenGame;
+  document.getElementById('page-lobby').classList.remove('active');
+  document.getElementById('page-game').classList.add('active');
+  document.getElementById('spectator-bar').style.display = isSpectator ? 'flex' : 'none';
+  document.getElementById('game-arena').style.paddingTop = (isSpectator && isOpenGame) ? '94px' : '56px';
+
+  // Set pack image in the centre icon
+  const packIcon = document.getElementById('pack-icon');
+  const packImgUrl = PACK_IMAGES[packName];
+  if (packImgUrl) {
+    packIcon.innerHTML = `<img src="${packImgUrl}" alt="${packName}" onerror="this.parentElement.innerHTML='🎴'">`;
+  } else {
+    packIcon.innerHTML = '🎴';
+  }
+
+  document.getElementById('name-a').textContent = pA || 'Player A';
+  document.getElementById('name-b').textContent = pB || 'Waiting...';
+  document.getElementById('avatar-a').textContent = (pA || 'A').charAt(0).toUpperCase();
+  document.getElementById('avatar-b').textContent = (pB || 'B').charAt(0).toUpperCase();
+  document.getElementById('pull-label-a').textContent = `${(pA || 'Player A').toUpperCase()} PULLS`;
+  document.getElementById('pull-label-b').textContent = `${(pB || 'Player B').toUpperCase()} PULLS`;
+
+  // Show/hide join banner for open games viewed as spectator
+  const joinBanner = document.getElementById('join-banner');
+  if (joinBanner) joinBanner.style.display = (isSpectator && isOpenGame) ? 'flex' : 'none';
+
+  resetGameState();
+
+  // Show zone-b join button AFTER resetGameState (which would hide it)
+  const zoneBJoin = document.getElementById('zone-b-join');
+  if (zoneBJoin) zoneBJoin.style.display = (isSpectator && isOpenGame) ? 'block' : 'none';
+
+  // Style avatar-b: dashed '?' when no player, normal when player exists
+  const avatarB = document.getElementById('avatar-b');
+  if (!pB) {
+    avatarB.textContent = '?';
+    avatarB.style.borderStyle = 'dashed';
+    avatarB.style.color = 'var(--text-muted)';
+  } else {
+    avatarB.style.borderStyle = 'solid';
+    avatarB.style.color = '';
+  }
+
+  if (isSpectator && !isOpenGame) {
+    document.getElementById('overlay-a').classList.add('hidden');
+    document.getElementById('overlay-b').classList.add('hidden');
+    // Simulate picks for spectator view: assign defaults then show after short delay
+    setTimeout(() => {
+      pickA = 'A'; pickB = 'B'; firstPick = 'A';
+      const nameA = document.getElementById('name-a').textContent;
+      const nameB = document.getElementById('name-b').textContent;
+      const ri = document.getElementById('result-indicator');
+      ri.style.display = 'block';
+      ri.innerHTML = '<div style="font-size:12px;color:var(--text-muted);text-align:center;line-height:2">'
+        + '<span style="color:var(--text-primary);font-weight:600">' + nameA + '</span> bet themselves pulls higher<br>'
+        + '<span style="color:var(--text-primary);font-weight:600">' + nameB + '</span> bet themselves pulls higher<br>'
+        + '<span style="font-size:11px">(Priority assigned — picks locked)</span>'
+        + '</div>';
+      document.getElementById('timer-wrap').style.display = 'none';
+      setTimeout(() => simulateReveal(), 1500);
+    }, 1500);
+  } else if (isSpectator && isOpenGame) {
+    // Viewing open game - hide both overlays
+    document.getElementById('overlay-a').classList.add('hidden');
+    document.getElementById('overlay-b').classList.add('hidden');
+    document.getElementById('timer-wrap').style.display = 'none';
+  } else {
+    startSelectionPhase();
+  }
+}
+
+function resetGameState() {
+  pickA = null; pickB = null; firstPick = null; gamePhase = 'selection';
+  ['a','b'].forEach(p => {
+    const P = p.toUpperCase();
+    document.getElementById(`overlay-${p}`).classList.remove('hidden');
+    document.getElementById(`reveal-${p}`).style.display = 'none';
+    document.getElementById(`final-${p}`).style.display = 'none';
+    document.getElementById(`zone-${p}`).className = 'card-zone';
+    document.getElementById(`pick-${p}-self`).classList.remove('selected');
+    document.getElementById(`pick-${p}-opp`).classList.remove('selected');
+    document.getElementById(`pull-empty-${p}`).style.display = 'block';
+    document.getElementById(`pull-row-${p}`).style.display = 'none';
+    // value display removed from header
+  });
+  // result-banner removed
+  const zbj = document.getElementById('zone-b-join');
+  if (zbj) zbj.style.display = 'none';
+  document.getElementById('timer-wrap').style.display = 'block';
+  document.getElementById('lock-wrap').style.display = 'none';
+  document.getElementById('lock-you').classList.remove('show');
+  document.getElementById('lock-opp').classList.remove('show');
+  document.getElementById('bet-summary').style.display = 'none';
+  document.getElementById('pack-status-label').style.display = 'none';
+  document.getElementById('pack-icon').classList.remove('opening');
+  document.getElementById('result-indicator').style.display = 'none';
+}
+
+function setupSelectionOverlays() {
+  // Show MY picks in MY zone, show "waiting" in opponent's zone
+  const myZone   = myRole === 'A' ? 'a' : 'b';
+  const oppZone  = myRole === 'A' ? 'b' : 'a';
+  // My zone: show picks, hide waiting
+  document.getElementById('overlay-' + myZone + '-picks').style.display   = 'flex';
+  document.getElementById('overlay-' + myZone + '-waiting').style.display = 'none';
+  // Opponent zone: hide picks, show waiting
+  document.getElementById('overlay-' + oppZone + '-picks').style.display   = 'none';
+  document.getElementById('overlay-' + oppZone + '-waiting').style.display = 'flex';
+}
+
+function startSelectionPhase() {
+  setupSelectionOverlays();
+  timerVal = 10;
+  updateTimer(10, 10);
+  timerInterval = setInterval(() => {
+    timerVal--;
+    updateTimer(timerVal, 10);
+    if (timerVal <= 0) {
+      clearInterval(timerInterval);
+      autoAssignMissing();
+    }
+  }, 1000);
+}
+
+function updateTimer(val, max) {
+  const offset = CIRCUMFERENCE * (1 - val / max);
+  const circle = document.getElementById('timer-circle');
+  circle.style.strokeDashoffset = offset;
+  circle.style.stroke = val <= 3 ? '#ef4444' : val <= 6 ? '#f59e0b' : '#8b5cf6';
+  document.getElementById('timer-num').textContent = val;
+  document.getElementById('timer-msg').textContent = val > 0 ? 'Make your pick' : 'Locking in...';
+}
+
+function makePick(player, choice) {
+  if (player !== myRole) return;
+  if (player === 'A' && pickA !== null) return;
+  if (player === 'B' && pickB !== null) return;
+
+  const isFirst = firstPick === null;
+  if (isFirst) firstPick = player;
+
+  if (player === 'A') {
+    pickA = choice;
+    document.getElementById(`pick-a-${choice === 'A' ? 'self' : 'opp'}`).classList.add('selected');
+  } else {
+    pickB = choice;
+    document.getElementById(`pick-b-${choice === 'B' ? 'self' : 'opp'}`).classList.add('selected');
+  }
+
+  document.getElementById('timer-wrap').style.display = 'none';
+  document.getElementById('lock-wrap').style.display = 'flex';
+  document.getElementById('lock-you').classList.add('show');
+
+  // Simulate opponent picking after short delay
+  // Per priority mechanic: opponent is always assigned the OPPOSITE of the first pick
+  setTimeout(() => {
+    const opp = player === 'A' ? 'B' : 'A';
+    // First player picked 'choice' (which is a role: 'A' or 'B')
+    // Opponent gets the opposite role
+    const oppChoice = choice === 'A' ? 'B' : 'A';
+    simulateOpponentPick(opp, oppChoice);
+  }, 800 + Math.random() * 1200);
+}
+
+function simulateOpponentPick(opp, choice) {
+  clearInterval(timerInterval);
+  if (opp === 'A') pickA = choice;
+  else pickB = choice;
+  document.getElementById('lock-opp').textContent = '✓ Opponent locked in';
+  document.getElementById('lock-opp').classList.add('show');
+  document.getElementById('lock-opp').style.background = 'var(--green-dim)';
+  document.getElementById('lock-opp').style.color = 'var(--green)';
+  showBetSummary();
+  setTimeout(() => openPacks(), 1500);
+}
+
+function autoAssignMissing() {
+  // Default: each player picks themselves if no selection made
+  if (pickA === null) pickA = 'A';
+  if (pickB === null) pickB = 'B';
+  // Since both picked themselves, priority goes to A by default
+  if (firstPick === null) firstPick = 'A';
+  // Apply priority mechanic: first picker keeps choice, second gets opposite
+  // If both defaulted (no one picked), A keeps 'A', B gets opposite = 'A' too — fix:
+  // Ensure picks are always opposite
+  if (pickA === pickB) {
+    // A picked first by default, B gets opposite
+    pickB = pickA === 'A' ? 'B' : 'A';
+  }
+  document.getElementById('timer-wrap').style.display = 'none';
+  document.getElementById('lock-wrap').style.display = 'flex';
+  showBetSummary();
+  setTimeout(() => openPacks(), 1200);
+}
+
+function showBetSummary() {
+  const fp = firstPick || 'A';
+  // From the perspective of the current player (myRole)
+  const myPick   = myRole === 'A' ? pickA   : pickB;
+  const oppPick  = myRole === 'A' ? pickB   : pickA;
+  const myPickStr  = myPick  === myRole        ? 'myself'         : 'my opponent';
+  const oppPickStr = oppPick === (myRole === 'A' ? 'B' : 'A') ? 'themselves' : 'me';
+  const iPicked1st = fp === myRole;
+  const summary = document.getElementById('bet-summary');
+  summary.style.display = 'block';
+  summary.innerHTML = `
+    <div style="margin-bottom:4px"><span class="bet-highlight">You</span> bet ${myPickStr} pulls higher</div>
+    <div style="margin-bottom:6px"><span class="bet-highlight">Opponent</span> bet ${oppPickStr} pulls higher</div>
+    <span style="font-size:11px;color:var(--text-muted)">(${iPicked1st ? 'You' : 'Opponent'} picked first — priority assigned)</span>`;
+}
+
+function openPacks() {
+  gamePhase = 'reveal';
+  document.getElementById('overlay-a').classList.add('hidden');
+  document.getElementById('overlay-b').classList.add('hidden');
+  // Hide lock indicators but keep bet-summary visible
+  document.getElementById('lock-you').classList.remove('show');
+  document.getElementById('lock-opp').classList.remove('show');
+  // Move bet-summary into result-indicator (stays visible through reveal)
+  const betSummaryHTML = document.getElementById('bet-summary').innerHTML;
+  document.getElementById('lock-wrap').style.display = 'none';
+  const ri = document.getElementById('result-indicator');
+  ri.style.display = 'block';
+  ri.innerHTML = `<div style="font-size:12px;color:var(--text-muted);text-align:center;line-height:1.8">${betSummaryHTML}</div>`;
+  document.getElementById('pack-icon').classList.add('opening');
+  document.getElementById('pack-status-label').style.display = 'block';
+
+  setTimeout(() => simulateReveal(), 2000);
+}
+
+function simulateReveal() {
+  // Always hide timer when reveal starts (handles spectator mode too)
+  document.getElementById('timer-wrap').style.display = 'none';
+
+  const steps = [
+    { label: 'Issued', a: '2025', b: '2024', delay: 3000 },
+    { label: 'Certified', a: 'Ungraded', b: 'EX-MT 6', delay: 6000 },
+    { label: 'Tier', a: 'UNCOMMON', b: 'RARE', rarity: true, delay: 9000 },
+  ];
+
+  steps.forEach(step => {
+    setTimeout(() => {
+      ['a','b'].forEach(p => {
+        const val = p === 'a' ? step.a : step.b;
+        const card = p === 'a' ? mockCardA : mockCardB;
+
+        // Flash the zone background
+        const zone = document.getElementById('zone-' + p);
+        zone.classList.remove('reveal-flash');
+        void zone.offsetWidth; // force reflow to restart animation
+        zone.classList.add('reveal-flash');
+
+        // Show the reveal stage
+        const revealEl = document.getElementById('reveal-' + p);
+        revealEl.style.display = 'flex';
+        revealEl.style.flexDirection = 'column';
+        revealEl.style.alignItems = 'center';
+        revealEl.style.justifyContent = 'center';
+
+        // Animate label in — clone to restart animation
+        const labelEl = document.getElementById('reveal-label-' + p);
+        labelEl.textContent = step.label.toUpperCase();
+        labelEl.style.animation = 'none';
+        void labelEl.offsetWidth;
+        labelEl.style.animation = '';
+
+        // Punch the value in
+        const rv = document.getElementById('reveal-value-' + p);
+        rv.style.animation = 'none';
+        void rv.offsetWidth;
+        rv.textContent = val;
+        rv.className = 'reveal-value';
+        if (step.rarity) rv.classList.add(card.rarity);
+        // Re-trigger animation by removing and re-adding class
+        rv.style.animation = '';
+      });
+    }, step.delay);
+  });
+
+  setTimeout(() => showFinalCards(), 12000);
+}
+
+function showFinalCards() {
+  document.getElementById('pack-icon').classList.remove('opening');
+
+  // Stagger the two cards slightly for dramatic effect
+  ['a','b'].forEach((p, i) => {
+    setTimeout(() => {
+      const card = p === 'a' ? mockCardA : mockCardB;
+      document.getElementById('reveal-' + p).style.display = 'none';
+
+      const finalEl = document.getElementById('final-' + p);
+      finalEl.style.display = 'flex';
+      // Remove then re-add animation class to restart it
+      finalEl.classList.remove('final-card-enter');
+      void finalEl.offsetWidth;
+      finalEl.classList.add('final-card-enter');
+
+      document.getElementById('cardname-' + p).textContent = card.name;
+      document.getElementById('cardval-' + p).textContent = '$' + card.value.toFixed(2);
+      const rarEl = document.getElementById('cardrar-' + p);
+      rarEl.textContent = card.rarity.charAt(0).toUpperCase() + card.rarity.slice(1);
+      rarEl.className = 'rarity-tag ' + card.rarity;
+
+      document.getElementById('pull-empty-' + p).style.display = 'none';
+      document.getElementById('pull-row-' + p).style.display = 'flex';
+      document.getElementById('pull-thumb-' + p).textContent = '\uD83C\uDCCF';
+      document.getElementById('pull-name-' + p).textContent = card.name;
+      document.getElementById('pull-val-' + p).textContent = '$' + card.value.toFixed(2);
+    }, 0); // both simultaneously
+  });
+
+  setTimeout(() => determineWinner(), 1000);
+}
+
+function determineWinner() {
+  const aVal = mockCardA.value;
+  const bVal = mockCardB.value;
+
+  if (aVal === bVal) {
+    document.getElementById('zone-a').classList.add('winner');
+    document.getElementById('zone-b').classList.add('winner');
+    showResult('tie', aVal, bVal);
+    return;
+  }
+
+  const winnerSide = aVal > bVal ? 'A' : 'B';
+  document.getElementById(`zone-${winnerSide.toLowerCase()}`).classList.add('winner');
+  document.getElementById(`zone-${winnerSide === 'A' ? 'b' : 'a'}`).classList.add('loser');
+
+  const myBet = myRole === 'A' ? pickA : pickB;
+  const iWon = myBet === winnerSide;
+  showResult(iWon ? 'win' : 'lose', aVal, bVal);
+}
+
+function showResult(outcome, aVal, bVal) {
+  const winnerName  = aVal > bVal ? document.getElementById('name-a').textContent
+                    : bVal > aVal ? document.getElementById('name-b').textContent
+                    : 'TIE';
+  const myName   = myRole === 'A' ? document.getElementById('name-a').textContent : document.getElementById('name-b').textContent;
+  const oppName  = myRole === 'A' ? document.getElementById('name-b').textContent : document.getElementById('name-a').textContent;
+  const myCard   = myRole === 'A' ? mockCardA : mockCardB;
+  const oppCard  = myRole === 'A' ? mockCardB : mockCardA;
+  const myVal    = myRole === 'A' ? aVal : bVal;
+  const oppVal   = myRole === 'A' ? bVal : aVal;
+
+  // Work out which side pulled higher and who guessed correctly — do this FIRST
+  // so we can use it for headline, trophy, and card grid
+  const cardA = mockCardA;
+  const cardB = mockCardB;
+  const higherSideRole = aVal >= bVal ? 'A' : 'B'; // role that pulled the higher card
+  const higherCard  = aVal >= bVal ? cardA : cardB;
+  const lowerCard   = aVal >= bVal ? cardB : cardA;
+  const higherOwner = aVal >= bVal ? document.getElementById('name-a').textContent : document.getElementById('name-b').textContent;
+  const lowerOwner  = aVal >= bVal ? document.getElementById('name-b').textContent : document.getElementById('name-a').textContent;
+
+  // pickA = the role A bet would pull higher; pickB = the role B bet would pull higher
+  const playersWhoPickedHigher = [];
+  const playersWhoPickedLower  = [];
+  if (pickA === higherSideRole) playersWhoPickedHigher.push(document.getElementById('name-a').textContent);
+  else playersWhoPickedLower.push(document.getElementById('name-a').textContent);
+  if (pickB === higherSideRole) playersWhoPickedHigher.push(document.getElementById('name-b').textContent);
+  else playersWhoPickedLower.push(document.getElementById('name-b').textContent);
+
+  // The correct guesser = whoever is in playersWhoPickedHigher (there will always be exactly 1)
+  const correctGuesserName = playersWhoPickedHigher.length > 0 ? playersWhoPickedHigher[0] : null;
+
+  // headline
+  const hl = document.getElementById('result-headline');
+  if (outcome === 'win')  { hl.textContent = 'YOU WIN';  hl.className = 'result-headline win'; }
+  else if (outcome === 'lose') { hl.textContent = 'YOU LOSE'; hl.className = 'result-headline lose'; }
+  else { hl.textContent = 'TIE GAME'; hl.className = 'result-headline tie'; }
+
+  // Trophy = correct guesser (the one who picked the higher side)
+  document.getElementById('result-winner-name').textContent =
+    outcome === 'tie' ? 'Both players draw' : correctGuesserName ? ('\uD83C\uDFC6 ' + correctGuesserName) : '';
+
+  // total win box
+  const totalBox = document.getElementById('result-total-box');
+  const totalVal = document.getElementById('result-total-value');
+  if (outcome === 'tie') {
+    totalBox.style.background = 'rgba(245,158,11,0.08)';
+    totalBox.style.borderColor = 'rgba(245,158,11,0.25)';
+    totalBox.querySelector('.result-total-label').textContent = 'EACH PLAYER KEEPS';
+    totalVal.textContent = '$' + myVal.toFixed(2);
+  } else {
+    totalBox.style.background = outcome === 'win' ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
+    totalBox.style.borderColor = outcome === 'win' ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.2)';
+    totalBox.querySelector('.result-total-label').textContent = outcome === 'win' ? 'TOTAL WIN VALUE' : 'WINNER TAKES';
+    totalVal.textContent = '$' + (aVal + bVal).toFixed(2);
+    totalVal.style.color = outcome === 'win' ? 'var(--text-primary)' : 'var(--red)';
+  }
+
+  // vs breakdown — show names only, highlight the correct guesser
+  const myIsCorrect = correctGuesserName === myName;
+  document.getElementById('result-vs-breakdown').innerHTML =
+    '<span class="' + (myIsCorrect ? 'higher' : '') + '">' + myName + '</span>'
+    + '  vs  '
+    + '<span class="' + (!myIsCorrect && outcome !== 'tie' ? 'higher' : '') + '">' + oppName + '</span>';
+
+  function rarityColor(r) {
+    if (r === 'epic') return 'rgba(245,158,11,0.15)';
+    if (r === 'rare') return 'rgba(59,130,246,0.15)';
+    if (r === 'uncommon') return 'rgba(34,197,94,0.15)';
+    return 'rgba(148,163,184,0.15)';
+  }
+  function rarityText(r) {
+    if (r === 'epic') return 'var(--epic)';
+    if (r === 'rare') return 'var(--rare)';
+    if (r === 'uncommon') return 'var(--uncommon)';
+    return 'var(--common)';
+  }
+
+  function cardHTML(card, ownerName, isCorrect, pickers) {
+    const badgeClass = isCorrect ? 'win-badge' : 'lose-badge';
+    const badgeText  = isCorrect ? '\u2713 Correct Guess' : '\u2717 Incorrect Guess';
+    const itemClass  = isCorrect ? 'winning-card' : 'losing-card';
+    const pickLine = pickers.length > 0
+      ? pickers.map(function(p) { return '<span style="color:var(--purple-light);font-weight:600">' + p + '</span> guessed this'; }).join(' &nbsp;&middot;&nbsp; ')
+      : '<span style="color:var(--text-muted)">Neither player guessed this</span>';
+    return [
+      '<div class="result-card-item ' + itemClass + '">',
+        '<div class="result-card-badge ' + badgeClass + '">' + badgeText + '</div>',
+        '<div class="result-card-body">',
+          '<div class="result-card-thumb">\uD83C\uDCCF</div>',
+          '<div class="result-card-details">',
+            '<div class="result-card-name">' + card.name + '</div>',
+            '<div class="result-card-meta">Year ' + card.year + ' \u00B7 ' + card.grade + '</div>',
+            '<div class="result-card-value-row">',
+              '<div class="result-card-value">$' + card.value.toFixed(2) + '</div>',
+              '<div class="result-card-rarity" style="background:' + rarityColor(card.rarity) + ';color:' + rarityText(card.rarity) + '">' + card.rarity.toUpperCase() + '</div>',
+            '</div>',
+            '<div class="result-card-owner" style="margin-top:2px;color:var(--text-primary)">Pulled by ' + ownerName + '</div>',
+          '</div>',
+        '</div>',
+        '<div style="padding:10px 14px;border-top:1px solid var(--border-subtle);font-size:12px">' + pickLine + '</div>',
+      '</div>'
+    ].join('');
+  }
+
+  document.getElementById('result-cards-grid').innerHTML =
+    cardHTML(higherCard, higherOwner, true,  playersWhoPickedHigher)
+  + cardHTML(lowerCard,  lowerOwner,  false, playersWhoPickedLower);
+
+  // transition to results page
+  setTimeout(() => {
+    document.getElementById('page-game').classList.remove('active');
+    document.getElementById('page-result').classList.add('active');
+  }, 4000);
+}
+
+function showLobby() {
+  document.getElementById('page-game').classList.remove('active');
+  document.getElementById('page-result').classList.remove('active');
+  document.getElementById('page-lobby').classList.add('active');
+  clearInterval(timerInterval);
+  const zbj = document.getElementById('zone-b-join');
+  if (zbj) zbj.style.display = 'none';
+  renderGames();
+}
+
+function playAgain() {
+  // result-banner removed
+  const zbj = document.getElementById('zone-b-join');
+  if (zbj) zbj.style.display = 'none';
+  resetGameState();
+  startSelectionPhase();
+}
+
+function playAgainFromResult() {
+  document.getElementById('page-result').classList.remove('active');
+  document.getElementById('page-lobby').classList.add('active');
+  renderGames();
+  setTimeout(() => openCreateModal(), 150);
+}
+
+renderGames();
+</script>
+</body>
+</html>
