@@ -85,6 +85,11 @@
   .wallet-pill { background: var(--bg-surface); border: 1px solid var(--border-mid); border-radius: 20px; padding: 6px 14px; font-size: 13px; color: var(--purple-light); display: flex; align-items: center; gap: 6px; cursor: pointer; }
   .wallet-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
 
+  /* RETURN TO BATTLE BANNER */
+  #return-banner { display: none; }
+  #return-banner.visible { display: flex !important; }
+  body.has-return-banner .page { padding-top: calc(56px + 45px); }
+
   /* ── PAGES ── */
   .page { display: none; padding-top: 56px; min-height: 100vh; }
   .page.active { display: block; }
@@ -479,6 +484,18 @@
   </div>
 </nav>
 
+<!-- RETURN TO BATTLE BANNER -->
+<div id="return-banner" style="display:none;position:fixed;top:56px;left:0;right:0;z-index:99;background:rgba(139,92,246,0.15);border-bottom:1px solid rgba(139,92,246,0.4);padding:10px 24px;align-items:center;justify-content:space-between;backdrop-filter:blur(8px);">
+  <div style="display:flex;align-items:center;gap:10px">
+    <span style="font-size:18px">⚔️</span>
+    <div>
+      <div style="font-size:13px;font-weight:600;color:var(--purple-light)">Your battle has started!</div>
+      <div style="font-size:12px;color:var(--text-muted)" id="return-banner-sub">An opponent joined your game.</div>
+    </div>
+  </div>
+  <button class="btn btn-primary" style="padding:8px 20px;font-size:13px;font-weight:600;flex-shrink:0" onclick="returnToBattle()">Return to Battle →</button>
+</div>
+
 <!-- PAGE: LOBBY -->
 <div class="page active" id="page-lobby">
   <div class="lobby-hero">
@@ -753,9 +770,11 @@ let myRole = 'A';
 let pickA = null, pickB = null, firstPick = null;
 let gamePhase = 'selection';
 let currentViewingGame = null;
-let currentGameId = null;   // real game ID from server
+let currentGameId = null;
+let activeGameId = null;    // persists even when in lobby — used for return-to-battle
+let activeGamePack = null;  // pack name for the active game
 let viewingOpenGame = false;
-let liveGames = [];         // populated by lobbyUpdate from server
+let liveGames = [];
 
 const PACK_TYPES = [
   { name: 'One Piece Blue',    category: 'One Piece', cost: 50  },
@@ -798,14 +817,34 @@ socket.on('lobbyUpdate', ({ games }) => {
 // Creator: server confirms game was created, store the real game ID
 socket.on('gameCreated', ({ game }) => {
   currentGameId = game.id;
+  activeGameId = game.id;
+  activeGamePack = game.packType;
   currentViewingGame = game;
+  window.location.hash = `/battle/${game.id}`;
 });
 
 // Both players: opponent has joined, selection phase is starting
 socket.on('opponentJoined', ({ game }) => {
-  if (!currentViewingGame) return;
-  const opponentWallet = myRole === 'A' ? game.playerB.wallet : game.playerA.wallet;
-  // Update UI with real opponent wallet
+  cancelUnlockTime = null;
+  clearInterval(cancelCountdownInterval);
+  cancelCountdownInterval = null;
+
+  // Track active game even if player navigates away
+  activeGameId = game.id || currentGameId;
+  activeGamePack = game.packType;
+
+  const onBattlePage = document.getElementById('page-game').classList.contains('active');
+
+  if (!onBattlePage && myRole === 'A') {
+    // Creator is in the lobby — show return-to-battle banner
+    document.getElementById('return-banner-sub').textContent =
+      `${game.playerB.wallet} joined your ${game.packType} battle.`;
+    document.getElementById('return-banner').classList.add('visible');
+    document.body.classList.add('has-return-banner');
+    return;
+  }
+
+  // Already on battle page — update UI
   document.getElementById('name-b').textContent = game.playerB.wallet;
   document.getElementById('avatar-b').textContent = game.playerB.wallet.charAt(0).toUpperCase();
   document.getElementById('avatar-b').style.borderStyle = 'solid';
@@ -813,13 +852,25 @@ socket.on('opponentJoined', ({ game }) => {
   document.getElementById('pull-label-b').textContent = game.playerB.wallet.toUpperCase() + ' PULLS';
   document.getElementById('result-indicator').style.display = 'none';
   setupSelectionOverlays();
-  // Timer is started by selectionStart event
+  // prepCountdown event drives the 5s prep, then selectionStart fires
 });
 
 // Server kicks off the authoritative 10s timer
 socket.on('selectionStart', ({ duration }) => {
   setupSelectionOverlays();
   startVisualTimer(duration);
+});
+
+// 5-second prep countdown before selection starts
+socket.on('prepCountdown', ({ seconds }) => {
+  const ri = document.getElementById('result-indicator');
+  ri.style.display = 'block';
+  ri.innerHTML = `<div style="text-align:center;padding:8px 0">
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Battle starting in</div>
+    <div style="font-family:var(--font-display);font-size:64px;font-weight:700;color:var(--purple-light);line-height:1">${seconds}</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Get ready to pick!</div>
+  </div>`;
+  if (seconds === 0) ri.style.display = 'none';
 });
 
 // Someone locked in — show feedback but don't reveal pick value yet
@@ -1108,11 +1159,9 @@ function createGame() {
   isSpectator = false;
   myRole = 'A';
 
-  // Tell the server to create the game
   socket.emit('createGame', { wallet: walletAddress, packType: p.name, packCost: p.cost });
-
-  // Launch the waiting UI immediately — server will confirm via gameCreated
   launchGame(walletAddress, null, p.name, true);
+  // Hash URL set once server confirms via gameCreated
 }
 
 function spectateGame(id, event) {
@@ -1130,10 +1179,8 @@ function spectateGame(id, event) {
 function joinGame(id, event) {
   if (event) event.stopPropagation();
   if (!walletConnected) { showConnectPrompt(); return; }
-  // id comes directly from the lobby card — find in mockGames or use id directly
   const g = mockGames.find(x => x.id === id);
   if (!g) return;
-  // Prevent joining your own game
   if (g.playerA === walletAddress) {
     alert('You created this game — share the lobby link for someone else to join.');
     return;
@@ -1142,21 +1189,104 @@ function joinGame(id, event) {
   myRole = 'B';
   currentViewingGame = g;
   currentGameId = g.id;
+  activeGameId = g.id;
+  activeGamePack = g.packType;
+  window.location.hash = `/battle/${g.id}`;
   socket.emit('joinGame', { gameId: g.id, wallet: walletAddress });
   launchGame(g.playerA, walletAddress, g.packType, false);
+}
+
+let cancelCountdownInterval = null;
+let cancelUnlockTime = null; // timestamp when cancel button unlocks
+
+function startCancelCountdown() {
+  // Set the unlock time to 3 minutes from now
+  cancelUnlockTime = Date.now() + 180 * 1000;
+  clearInterval(cancelCountdownInterval);
+
+  cancelCountdownInterval = setInterval(() => {
+    updateCancelButton();
+    if (Date.now() >= cancelUnlockTime) {
+      clearInterval(cancelCountdownInterval);
+      cancelCountdownInterval = null;
+    }
+  }, 1000);
+}
+
+function updateCancelButton() {
+  const btn = document.getElementById('cancel-game-btn');
+  if (!btn || !cancelUnlockTime) return;
+
+  const secondsLeft = Math.max(0, Math.ceil((cancelUnlockTime - Date.now()) / 1000));
+
+  if (secondsLeft <= 0) {
+    btn.textContent = 'Cancel Game';
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+    btn.onclick = cancelGame;
+  } else {
+    const mins = Math.floor(secondsLeft / 60);
+    const secs = String(secondsLeft % 60).padStart(2, '0');
+    btn.textContent = `Cancel Game (${mins}:${secs})`;
+    btn.disabled = true;
+    btn.style.opacity = '0.4';
+    btn.style.cursor = 'not-allowed';
+  }
+}
+
+function returnToBattle() {
+  document.getElementById('return-banner').classList.remove('visible');
+  document.body.classList.remove('has-return-banner');
+  if (!activeGameId) return;
+
+  // Find game in lobby data
+  const g = mockGames.find(x => x.id === activeGameId);
+  const packName = activeGamePack || (g && g.packType) || '';
+  const playerB = g ? g.playerB : null;
+
+  currentGameId = activeGameId;
+  currentViewingGame = g || { id: activeGameId, packType: packName };
+
+  // Navigate back to battle page
+  window.location.hash = `/battle/${activeGameId}`;
+  document.getElementById('page-lobby').classList.remove('active');
+  document.getElementById('page-game').classList.add('active');
+
+  // Re-render opponent info if available
+  if (playerB) {
+    document.getElementById('name-b').textContent = playerB;
+    document.getElementById('avatar-b').textContent = playerB.charAt(0).toUpperCase();
+    document.getElementById('avatar-b').style.borderStyle = 'solid';
+    document.getElementById('avatar-b').style.color = '';
+    document.getElementById('pull-label-b').textContent = playerB.toUpperCase() + ' PULLS';
+  }
+  document.getElementById('result-indicator').style.display = 'none';
+  setupSelectionOverlays();
 }
 
 function cancelGame() {
   if (!currentGameId) return;
   socket.emit('cancelGame', { gameId: currentGameId });
+  cancelUnlockTime = null;
+  clearInterval(cancelCountdownInterval);
+  cancelCountdownInterval = null;
   showLobby();
 }
 
 // Server cancelled the game (creator cancelled or 3min timeout)
 socket.on('gameCancelled', ({ reason }) => {
+  cancelUnlockTime = null;
+  clearInterval(cancelCountdownInterval);
+  cancelCountdownInterval = null;
+  activeGameId = null;
+  activeGamePack = null;
+  window.location.hash = '';
+  // Dismiss return-to-battle banner if showing
+  document.getElementById('return-banner').classList.remove('visible');
+  document.body.classList.remove('has-return-banner');
   if (document.getElementById('page-game').classList.contains('active')) {
     showLobby();
-    // Brief notice if opponent was in the room
     if (!isSpectator && myRole === 'B') {
       alert('The game was cancelled by the creator.');
     }
@@ -1265,10 +1395,16 @@ function launchGame(pA, pB, packName, isOpenGame) {
       + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:20px">Share your game from the lobby<br>The battle starts when they join</div>'
       + '<div style="display:flex;flex-direction:column;align-items:center;gap:10px">'
       + '<button class="btn btn-ghost" style="padding:8px 20px;font-size:13px" onclick="showLobby()">← Back to Lobby</button>'
-      + '<button class="btn btn-danger" style="padding:8px 20px;font-size:13px" id="cancel-game-btn" onclick="cancelGame()">Cancel Game</button>'
-      + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Auto-cancels if no one joins in 3 mins</div>'
+      + '<button class="btn btn-danger" style="padding:8px 20px;font-size:13px;opacity:0.4;cursor:not-allowed" id="cancel-game-btn" disabled onclick="cancelGame()">Cancel Game (3:00)</button>'
       + '</div>'
       + '</div>';
+    // If countdown already running (returned from lobby), sync button state immediately
+    if (cancelUnlockTime) {
+      updateCancelButton();
+    } else {
+      startCancelCountdown();
+    }
+  
 
   } else if (isSpectator && isOpenGame) {
     // Spectating an open game
@@ -1553,6 +1689,9 @@ function showResult(outcome, aVal, bVal) {
 
   // transition to results page
   setTimeout(() => {
+    activeGameId = null;
+    activeGamePack = null;
+    window.location.hash = '';
     document.getElementById('page-game').classList.remove('active');
     document.getElementById('page-result').classList.add('active');
   }, 4000);
@@ -1564,6 +1703,8 @@ function showLobby() {
   }
   currentGameId = null;
   currentViewingGame = null;
+  // Clear hash only if not an active game (creator going back to lobby keeps hash)
+  if (!activeGameId) window.location.hash = '';
   document.getElementById('page-game').classList.remove('active');
   document.getElementById('page-result').classList.remove('active');
   document.getElementById('page-lobby').classList.add('active');
@@ -1588,14 +1729,44 @@ function playAgainFromResult() {
   setTimeout(() => openCreateModal(), 150);
 }
 
+// Hash-based URL routing — handles shared battle links
+function handleHashRoute() {
+  const hash = window.location.hash; // e.g. #/battle/abc-123
+  const match = hash.match(/^#\/battle\/(.+)$/);
+  if (match) {
+    const gameId = match[1];
+    // Wait for lobby to load then try to join/spectate
+    const tryRoute = () => {
+      const g = mockGames.find(x => x.id === gameId);
+      if (g) {
+        if (!walletConnected) showConnectPrompt();
+        if (g.status === 'waiting' && g.playerA !== walletAddress) {
+          joinGame(gameId, null);
+        } else {
+          spectateGame(gameId, null);
+        }
+      }
+    };
+    // Give lobby a moment to populate from server
+    setTimeout(tryRoute, 1200);
+  }
+}
+
+window.addEventListener('hashchange', () => {
+  if (!window.location.hash.includes('/battle/')) {
+    // Hash cleared — nothing to do
+  }
+});
+
 // Fetch lobby on load, then keep live via lobbyUpdate socket event
 fetch(SERVER_URL + '/api/lobby')
   .then(r => r.json())
   .then(games => {
     mockGames = games.map(g => ({ ...g, spectators: g.spectatorCount || 0 }));
     renderGames();
+    handleHashRoute();
   })
-  .catch(() => renderGames()); // show empty lobby if server unreachable
+  .catch(() => { renderGames(); handleHashRoute(); });
 </script>
 </body>
 </html>
