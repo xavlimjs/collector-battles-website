@@ -1000,7 +1000,9 @@ function filterGames(f, el) {
 
 function showConnectPrompt() {
   walletConnected = true;
-  walletAddress = '3yAa...PoUT';
+  // Generate a unique mock wallet per tab so two tabs can play each other during testing
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  walletAddress = `Test...${suffix}`;
   document.getElementById('nav-right').innerHTML = `
     <button class="btn btn-ghost" onclick="showLobby()">Lobby</button>
     <div class="wallet-pill"><span class="wallet-dot"></span>${walletAddress}</div>
@@ -1128,8 +1130,14 @@ function spectateGame(id, event) {
 function joinGame(id, event) {
   if (event) event.stopPropagation();
   if (!walletConnected) { showConnectPrompt(); return; }
+  // id comes directly from the lobby card — find in mockGames or use id directly
   const g = mockGames.find(x => x.id === id);
   if (!g) return;
+  // Prevent joining your own game
+  if (g.playerA === walletAddress) {
+    alert('You created this game — share the lobby link for someone else to join.');
+    return;
+  }
   isSpectator = false;
   myRole = 'B';
   currentViewingGame = g;
@@ -1138,9 +1146,24 @@ function joinGame(id, event) {
   launchGame(g.playerA, walletAddress, g.packType, false);
 }
 
+function cancelGame() {
+  if (!currentGameId) return;
+  socket.emit('cancelGame', { gameId: currentGameId });
+  showLobby();
+}
+
+// Server cancelled the game (creator cancelled or 3min timeout)
+socket.on('gameCancelled', ({ reason }) => {
+  if (document.getElementById('page-game').classList.contains('active')) {
+    showLobby();
+    // Brief notice if opponent was in the room
+    if (!isSpectator && myRole === 'B') {
+      alert('The game was cancelled by the creator.');
+    }
+  }
+});
+
 function opponentJoined(opponentName) {
-  // Called when someone joins your open game (simulated for demo)
-  if (!currentViewingGame) return;
   currentViewingGame.playerB = opponentName;
   currentViewingGame.status = 'live';
   // Update UI
@@ -1239,7 +1262,12 @@ function launchGame(pA, pB, packName, isOpenGame) {
       '<div style="text-align:center;padding:8px 0">'
       + '<div style="font-size:28px;margin-bottom:10px">⏳</div>'
       + '<div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Waiting for opponent...</div>'
-      + '<div style="font-size:12px;color:var(--text-muted)">Share your game from the lobby<br>The battle starts when they join</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:20px">Share your game from the lobby<br>The battle starts when they join</div>'
+      + '<div style="display:flex;flex-direction:column;align-items:center;gap:10px">'
+      + '<button class="btn btn-ghost" style="padding:8px 20px;font-size:13px" onclick="showLobby()">← Back to Lobby</button>'
+      + '<button class="btn btn-danger" style="padding:8px 20px;font-size:13px" id="cancel-game-btn" onclick="cancelGame()">Cancel Game</button>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Auto-cancels if no one joins in 3 mins</div>'
+      + '</div>'
       + '</div>';
 
   } else if (isSpectator && isOpenGame) {
