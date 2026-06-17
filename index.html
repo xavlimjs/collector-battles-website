@@ -1391,9 +1391,22 @@ function showResult(outcome, aVal, bVal) {
     ].join('');
   }
 
+  // Always show Player A's card on LEFT, Player B's card on RIGHT (same as battle screen)
+  // Correct/Incorrect badge is determined by which card has the higher value
+  const nameA = document.getElementById('name-a').textContent;
+  const nameB = document.getElementById('name-b').textContent;
+  const aIsCorrect = aVal >= bVal; // A's card is higher or tied
+  const bIsCorrect = bVal >= aVal; // B's card is higher or tied (for tie both true)
+
+  // Who picked each side for the subtext
+  const aCardPickers = pickA === 'A' ? [nameA] : [];
+  if (pickB === 'A') aCardPickers.push(nameB);
+  const bCardPickers = pickA === 'B' ? [nameA] : [];
+  if (pickB === 'B') bCardPickers.push(nameB);
+
   document.getElementById('result-cards-grid').innerHTML =
-    cardHTML(higherCard, higherOwner, true,  playersWhoPickedHigher)
-  + cardHTML(lowerCard,  lowerOwner,  false, playersWhoPickedLower);
+    cardHTML(mockCardA, nameA, aIsCorrect, aCardPickers)
+  + cardHTML(mockCardB, nameB, bIsCorrect, bCardPickers);
 
   // transition to results page
   setTimeout(() => {
