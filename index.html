@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PackDuel — Higher / Lower Card Battles</title>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -732,6 +733,15 @@
 </div>
 
 <script>
+// ── Socket connection ────────────────────────────────────────────
+const SERVER_URL = 'https://collector-battles-server-production.up.railway.app';
+const socket = io(SERVER_URL);
+
+socket.on('connect', () => console.log('[socket] connected:', socket.id));
+socket.on('disconnect', () => console.log('[socket] disconnected'));
+socket.on('error', ({ message }) => console.error('[socket] error:', message));
+
+// ── State ────────────────────────────────────────────────────────
 const CIRCUMFERENCE = 2 * Math.PI * 34;
 let walletConnected = false;
 let walletAddress = '';
@@ -743,7 +753,9 @@ let myRole = 'A';
 let pickA = null, pickB = null, firstPick = null;
 let gamePhase = 'selection';
 let currentViewingGame = null;
+let currentGameId = null;   // real game ID from server
 let viewingOpenGame = false;
+let liveGames = [];         // populated by lobbyUpdate from server
 
 const PACK_TYPES = [
   { name: 'One Piece Blue',    category: 'One Piece', cost: 50  },
@@ -758,31 +770,161 @@ const PACK_TYPES = [
   { name: 'Sports Gacha Pack', category: 'Sports',    cost: 100 },
 ];
 
-const mockGames = [
-  { id: 1,  status: 'live', playerA: '7xKp...mNvQ', playerB: 'Netti...QR2', packType: 'One Piece Blue',    packCategory: 'One Piece', packCost: 50,   spectators: 14, prizeA: 34,  prizeB: 22  },
-  { id: 2,  status: 'open', playerA: '3yAa...PoUT', playerB: null,           packType: 'One Piece Blue',    packCategory: 'One Piece', packCost: 50,   spectators: 0,  prizeA: 0,   prizeB: 0   },
-  { id: 3,  status: 'live', playerA: 'Dax...77fQ',  playerB: 'Kai...9mPL',  packType: 'One Piece',         packCategory: 'One Piece', packCost: 250,  spectators: 31, prizeA: 180, prizeB: 240 },
-  { id: 4,  status: 'open', playerA: 'Mika...88Xx', playerB: null,           packType: 'One Piece',         packCategory: 'One Piece', packCost: 250,  spectators: 2,  prizeA: 0,   prizeB: 0   },
-  { id: 5,  status: 'live', playerA: 'Zara...44Bb', playerB: 'Rex...55Cc',  packType: 'Starter Pokémon',   packCategory: 'Pokémon',   packCost: 25,   spectators: 7,  prizeA: 18,  prizeB: 22  },
-  { id: 6,  status: 'open', playerA: 'Sol...99Dd',  playerB: null,           packType: 'Starter Pokémon',   packCategory: 'Pokémon',   packCost: 25,   spectators: 1,  prizeA: 0,   prizeB: 0   },
-  { id: 7,  status: 'live', playerA: 'Ace...22Ee',  playerB: 'Bry...33Ff',  packType: 'Elite Pokémon',     packCategory: 'Pokémon',   packCost: 50,   spectators: 9,  prizeA: 44,  prizeB: 56  },
-  { id: 8,  status: 'open', playerA: 'Cam...44Gg',  playerB: null,           packType: 'Elite Pokémon',     packCategory: 'Pokémon',   packCost: 50,   spectators: 0,  prizeA: 0,   prizeB: 0   },
-  { id: 9,  status: 'live', playerA: 'Dee...55Hh',  playerB: 'Eli...66Ii',  packType: 'Legendary Pokémon', packCategory: 'Pokémon',   packCost: 250,  spectators: 22, prizeA: 200, prizeB: 310 },
-  { id: 10, status: 'open', playerA: 'Fin...77Jj',  playerB: null,           packType: 'Legendary Pokémon', packCategory: 'Pokémon',   packCost: 250,  spectators: 4,  prizeA: 0,   prizeB: 0   },
-  { id: 11, status: 'live', playerA: 'Gil...88Kk',  playerB: 'Hal...99Ll',  packType: 'Grail Pokémon',     packCategory: 'Pokémon',   packCost: 1000, spectators: 58, prizeA: 900, prizeB: 1200},
-  { id: 12, status: 'open', playerA: 'Ida...11Mm',  playerB: null,           packType: 'Grail Pokémon',     packCategory: 'Pokémon',   packCost: 1000, spectators: 12, prizeA: 0,   prizeB: 0   },
-  { id: 13, status: 'live', playerA: 'Jay...22Nn',  playerB: 'Kia...33Oo',  packType: 'Anime Pop Culture', packCategory: 'Anime',     packCost: 75,   spectators: 5,  prizeA: 60,  prizeB: 90  },
-  { id: 14, status: 'open', playerA: 'Leo...44Pp',  playerB: null,           packType: 'Anime Pop Culture', packCategory: 'Anime',     packCost: 75,   spectators: 0,  prizeA: 0,   prizeB: 0   },
-  { id: 15, status: 'live', playerA: 'Max...55Qq',  playerB: 'Nia...66Rr',  packType: 'Sealed Gacha Pack', packCategory: 'Sealed',    packCost: 80,   spectators: 3,  prizeA: 70,  prizeB: 85  },
-  { id: 16, status: 'open', playerA: 'Oli...77Ss',  playerB: null,           packType: 'Sealed Gacha Pack', packCategory: 'Sealed',    packCost: 80,   spectators: 0,  prizeA: 0,   prizeB: 0   },
-  { id: 17, status: 'live', playerA: 'Pia...88Tt',  playerB: 'Qui...99Uu',  packType: 'Water Pack',        packCategory: 'Water',     packCost: 100,  spectators: 8,  prizeA: 80,  prizeB: 110 },
-  { id: 18, status: 'open', playerA: 'Rob...11Vv',  playerB: null,           packType: 'Water Pack',        packCategory: 'Water',     packCost: 100,  spectators: 0,  prizeA: 0,   prizeB: 0   },
-  { id: 19, status: 'live', playerA: 'Sam...22Ww',  playerB: 'Tia...33Xx',  packType: 'Sports Gacha Pack', packCategory: 'Sports',    packCost: 100,  spectators: 11, prizeA: 95,  prizeB: 105 },
-  { id: 20, status: 'open', playerA: 'Uma...44Yy',  playerB: null,           packType: 'Sports Gacha Pack', packCategory: 'Sports',    packCost: 100,  spectators: 0,  prizeA: 0,   prizeB: 0   },
-];
+// ── Mock games replaced by server lobby ─────────────────────────
+// liveGames is populated via lobbyUpdate socket event below.
+// We keep a small set of placeholder games so the lobby isn't empty
+// before the server responds on first load.
+let mockGames = [];
 
-const mockCardA = { name: "Acerola's Mischief", year: 2025, grade: 'Ungraded', rarity: 'uncommon', value: 34.00 };
-const mockCardB = { name: 'Marnie Full Art', year: 2024, grade: 'EX-MT 6', rarity: 'rare', value: 72.50 };
+// Card data is now received from the server via revealFinal.
+// These are only used as fallback during local mock/testing.
+let currentCardA = { name: "Acerola's Mischief", year: 2025, grade: 'Ungraded', rarity: 'uncommon', value: 34.00 };
+let currentCardB = { name: 'Marnie Full Art', year: 2024, grade: 'EX-MT 6', rarity: 'rare', value: 72.50 };
+
+// ── Socket event listeners ───────────────────────────────────────
+
+// Lobby stays live — server pushes updates on any game state change
+socket.on('lobbyUpdate', ({ games }) => {
+  mockGames = games.map(g => ({
+    ...g,
+    playerA: g.playerA,
+    playerB: g.playerB,
+    packCost: g.packCost,
+    spectators: g.spectatorCount || 0,
+  }));
+  renderGames();
+});
+
+// Creator: server confirms game was created, store the real game ID
+socket.on('gameCreated', ({ game }) => {
+  currentGameId = game.id;
+  currentViewingGame = game;
+});
+
+// Both players: opponent has joined, selection phase is starting
+socket.on('opponentJoined', ({ game }) => {
+  if (!currentViewingGame) return;
+  const opponentWallet = myRole === 'A' ? game.playerB.wallet : game.playerA.wallet;
+  // Update UI with real opponent wallet
+  document.getElementById('name-b').textContent = game.playerB.wallet;
+  document.getElementById('avatar-b').textContent = game.playerB.wallet.charAt(0).toUpperCase();
+  document.getElementById('avatar-b').style.borderStyle = 'solid';
+  document.getElementById('avatar-b').style.color = '';
+  document.getElementById('pull-label-b').textContent = game.playerB.wallet.toUpperCase() + ' PULLS';
+  document.getElementById('result-indicator').style.display = 'none';
+  setupSelectionOverlays();
+  // Timer is started by selectionStart event
+});
+
+// Server kicks off the authoritative 10s timer
+socket.on('selectionStart', ({ duration }) => {
+  setupSelectionOverlays();
+  startVisualTimer(duration);
+});
+
+// Someone locked in — show feedback but don't reveal pick value yet
+socket.on('pickLocked', ({ side }) => {
+  const isMe = side === myRole;
+  if (isMe) {
+    document.getElementById('lock-wrap').style.display = 'flex';
+    document.getElementById('lock-you').classList.add('show');
+  } else {
+    document.getElementById('lock-wrap').style.display = 'flex';
+    document.getElementById('lock-opp').textContent = '⏳ Opponent picking...';
+    document.getElementById('lock-opp').classList.add('show');
+  }
+});
+
+// Both picks resolved — server tells us the final assignments
+socket.on('selectionResult', ({ firstPickSide, finalPickA, finalPickB }) => {
+  clearInterval(timerInterval);
+  pickA = finalPickA;
+  pickB = finalPickB;
+  firstPick = firstPickSide;
+
+  // Highlight the correct pick button for this player
+  const myPick = myRole === 'A' ? pickA : pickB;
+  const myZone = myRole.toLowerCase();
+  if (myPick === myRole) {
+    document.getElementById(`pick-${myZone}-self`).classList.add('selected');
+  } else {
+    document.getElementById(`pick-${myZone}-opp`).classList.add('selected');
+  }
+
+  document.getElementById('lock-opp').textContent = '✓ Opponent locked in';
+  document.getElementById('lock-opp').classList.add('show');
+  document.getElementById('lock-opp').style.background = 'var(--green-dim)';
+  document.getElementById('lock-opp').style.color = 'var(--green)';
+  showBetSummary();
+});
+
+// Server signals packs are opening
+socket.on('openingStart', () => {
+  gamePhase = 'reveal';
+  document.getElementById('overlay-a').classList.add('hidden');
+  document.getElementById('overlay-b').classList.add('hidden');
+  document.getElementById('lock-you').classList.remove('show');
+  document.getElementById('lock-opp').classList.remove('show');
+  const betSummaryHTML = document.getElementById('bet-summary').innerHTML;
+  document.getElementById('lock-wrap').style.display = 'none';
+  const ri = document.getElementById('result-indicator');
+  ri.style.display = 'block';
+  ri.innerHTML = `<div style="font-size:12px;color:var(--text-muted);text-align:center;line-height:1.8">${betSummaryHTML}</div>`;
+  document.getElementById('pack-icon').classList.add('opening');
+  document.getElementById('pack-status-label').style.display = 'block';
+});
+
+// Server broadcasts each reveal stage (ISSUED / CERTIFIED / TIER)
+socket.on('revealStage', ({ label, valueA, valueB }) => {
+  document.getElementById('timer-wrap').style.display = 'none';
+  ['a', 'b'].forEach(p => {
+    const val = p === 'a' ? valueA : valueB;
+    const isRarity = label === 'TIER';
+
+    const zone = document.getElementById('zone-' + p);
+    zone.classList.remove('reveal-flash');
+    void zone.offsetWidth;
+    zone.classList.add('reveal-flash');
+
+    const revealEl = document.getElementById('reveal-' + p);
+    revealEl.style.display = 'flex';
+    revealEl.style.flexDirection = 'column';
+    revealEl.style.alignItems = 'center';
+    revealEl.style.justifyContent = 'center';
+
+    const labelEl = document.getElementById('reveal-label-' + p);
+    labelEl.textContent = label;
+    labelEl.style.animation = 'none';
+    void labelEl.offsetWidth;
+    labelEl.style.animation = '';
+
+    const rv = document.getElementById('reveal-value-' + p);
+    rv.style.animation = 'none';
+    void rv.offsetWidth;
+    rv.textContent = val;
+    rv.className = 'reveal-value';
+    if (isRarity) rv.classList.add(val.toLowerCase());
+    rv.style.animation = '';
+  });
+});
+
+// Server sends final card data + winner — triggers the card slam and result
+socket.on('revealFinal', ({ cardA, cardB, winner }) => {
+  currentCardA = cardA;
+  currentCardB = cardB;
+  showFinalCards();
+});
+
+// A player disconnected mid-game
+socket.on('playerDisconnected', ({ message }) => {
+  alert(message); // simple for now — Phase 6 will handle this gracefully
+  showLobby();
+});
+
+// Spectator: synced to current phase when joining a live game
+socket.on('phaseSynced', ({ status }) => {
+  console.log('[spectate] synced to phase:', status);
+});
 
 function renderGames() {
   const grid = document.getElementById('games-grid');
@@ -953,48 +1095,38 @@ function createGame() {
   if (!p) return;
   closeCreateModal();
 
-  // Add game to mockGames so it appears in the lobby for others
-  const newId = mockGames.length > 0 ? Math.max(...mockGames.map(g => g.id)) + 1 : 1;
-  const newGame = {
-    id: newId,
-    status: 'open',
-    playerA: walletAddress,
-    playerB: null,
-    packType: p.name,
-    packCategory: p.category,
-    packCost: p.cost,
-    spectators: 0,
-    prizeA: 0,
-    prizeB: 0,
-    _isMyGame: true  // flag so joinGame can activate it
-  };
-  mockGames.unshift(newGame); // add to front of list
-  currentViewingGame = newGame;
-
   isSpectator = false;
   myRole = 'A';
-  launchGame(walletAddress, null, p.name, true); // isOpenGame=true → waiting state
+
+  // Tell the server to create the game
+  socket.emit('createGame', { wallet: walletAddress, packType: p.name, packCost: p.cost });
+
+  // Launch the waiting UI immediately — server will confirm via gameCreated
+  launchGame(walletAddress, null, p.name, true);
 }
 
 function spectateGame(id, event) {
-  // Don't fire if the join button was clicked
   if (event && event.target.closest('button')) return;
   if (!walletConnected) { showConnectPrompt(); return; }
   const g = mockGames.find(x => x.id === id);
+  if (!g) return;
   isSpectator = true;
   currentViewingGame = g;
-  launchGame(g.playerA, g.playerB, g.packType, g.status === 'open');
+  currentGameId = g.id;
+  socket.emit('spectateGame', { gameId: g.id });
+  launchGame(g.playerA, g.playerB, g.packType, g.status === 'waiting');
 }
 
 function joinGame(id, event) {
   if (event) event.stopPropagation();
   if (!walletConnected) { showConnectPrompt(); return; }
   const g = mockGames.find(x => x.id === id);
+  if (!g) return;
   isSpectator = false;
   myRole = 'B';
-  g.playerB = walletAddress;
-  g.status = 'live';
   currentViewingGame = g;
+  currentGameId = g.id;
+  socket.emit('joinGame', { gameId: g.id, wallet: walletAddress });
   launchGame(g.playerA, walletAddress, g.packType, false);
 }
 
@@ -1153,18 +1285,20 @@ function setupSelectionOverlays() {
   document.getElementById('overlay-' + oppZone + '-waiting').style.display = 'flex';
 }
 
-function startSelectionPhase() {
-  setupSelectionOverlays();
-  timerVal = 10;
-  updateTimer(10, 10);
+function startVisualTimer(duration) {
+  // Client timer is visual only — server is authoritative
+  timerVal = duration;
+  updateTimer(timerVal, duration);
   timerInterval = setInterval(() => {
     timerVal--;
-    updateTimer(timerVal, 10);
-    if (timerVal <= 0) {
-      clearInterval(timerInterval);
-      autoAssignMissing();
-    }
+    updateTimer(timerVal, duration);
+    if (timerVal <= 0) clearInterval(timerInterval);
   }, 1000);
+}
+
+function startSelectionPhase() {
+  setupSelectionOverlays();
+  // Timer starts when server emits selectionStart
 }
 
 function updateTimer(val, max) {
@@ -1181,62 +1315,16 @@ function makePick(player, choice) {
   if (player === 'A' && pickA !== null) return;
   if (player === 'B' && pickB !== null) return;
 
-  const isFirst = firstPick === null;
-  if (isFirst) firstPick = player;
+  // Optimistic UI — highlight selected button immediately
+  const myZone = player.toLowerCase();
+  document.getElementById(`pick-${myZone}-${choice === player ? 'self' : 'opp'}`).classList.add('selected');
 
-  if (player === 'A') {
-    pickA = choice;
-    document.getElementById(`pick-a-${choice === 'A' ? 'self' : 'opp'}`).classList.add('selected');
-  } else {
-    pickB = choice;
-    document.getElementById(`pick-b-${choice === 'B' ? 'self' : 'opp'}`).classList.add('selected');
-  }
-
-  document.getElementById('timer-wrap').style.display = 'none';
-  document.getElementById('lock-wrap').style.display = 'flex';
-  document.getElementById('lock-you').classList.add('show');
-
-  // Simulate opponent picking after short delay
-  // Per priority mechanic: opponent is always assigned the OPPOSITE of the first pick
-  setTimeout(() => {
-    const opp = player === 'A' ? 'B' : 'A';
-    // First player picked 'choice' (which is a role: 'A' or 'B')
-    // Opponent gets the opposite role
-    const oppChoice = choice === 'A' ? 'B' : 'A';
-    simulateOpponentPick(opp, oppChoice);
-  }, 800 + Math.random() * 1200);
+  // Send to server — server enforces priority and broadcasts result
+  socket.emit('submitPick', { gameId: currentGameId, side: player, chosenSide: choice });
 }
 
-function simulateOpponentPick(opp, choice) {
-  clearInterval(timerInterval);
-  if (opp === 'A') pickA = choice;
-  else pickB = choice;
-  document.getElementById('lock-opp').textContent = '✓ Opponent locked in';
-  document.getElementById('lock-opp').classList.add('show');
-  document.getElementById('lock-opp').style.background = 'var(--green-dim)';
-  document.getElementById('lock-opp').style.color = 'var(--green)';
-  showBetSummary();
-  setTimeout(() => openPacks(), 1500);
-}
-
-function autoAssignMissing() {
-  // Default: each player picks themselves if no selection made
-  if (pickA === null) pickA = 'A';
-  if (pickB === null) pickB = 'B';
-  // Since both picked themselves, priority goes to A by default
-  if (firstPick === null) firstPick = 'A';
-  // Apply priority mechanic: first picker keeps choice, second gets opposite
-  // If both defaulted (no one picked), A keeps 'A', B gets opposite = 'A' too — fix:
-  // Ensure picks are always opposite
-  if (pickA === pickB) {
-    // A picked first by default, B gets opposite
-    pickB = pickA === 'A' ? 'B' : 'A';
-  }
-  document.getElementById('timer-wrap').style.display = 'none';
-  document.getElementById('lock-wrap').style.display = 'flex';
-  showBetSummary();
-  setTimeout(() => openPacks(), 1200);
-}
+// simulateOpponentPick and autoAssignMissing removed —
+// server now handles priority logic and auto-assignment via selectionResult event.
 
 function showBetSummary() {
   const fp = firstPick || 'A';
@@ -1254,113 +1342,41 @@ function showBetSummary() {
     <span style="font-size:11px;color:var(--text-muted)">(${iPicked1st ? 'You' : 'Opponent'} picked first — priority assigned)</span>`;
 }
 
-function openPacks() {
-  gamePhase = 'reveal';
-  document.getElementById('overlay-a').classList.add('hidden');
-  document.getElementById('overlay-b').classList.add('hidden');
-  // Hide lock indicators but keep bet-summary visible
-  document.getElementById('lock-you').classList.remove('show');
-  document.getElementById('lock-opp').classList.remove('show');
-  // Move bet-summary into result-indicator (stays visible through reveal)
-  const betSummaryHTML = document.getElementById('bet-summary').innerHTML;
-  document.getElementById('lock-wrap').style.display = 'none';
-  const ri = document.getElementById('result-indicator');
-  ri.style.display = 'block';
-  ri.innerHTML = `<div style="font-size:12px;color:var(--text-muted);text-align:center;line-height:1.8">${betSummaryHTML}</div>`;
-  document.getElementById('pack-icon').classList.add('opening');
-  document.getElementById('pack-status-label').style.display = 'block';
-
-  setTimeout(() => simulateReveal(), 2000);
-}
-
-function simulateReveal() {
-  // Always hide timer when reveal starts (handles spectator mode too)
-  document.getElementById('timer-wrap').style.display = 'none';
-
-  const steps = [
-    { label: 'Issued', a: '2025', b: '2024', delay: 3000 },
-    { label: 'Certified', a: 'Ungraded', b: 'EX-MT 6', delay: 6000 },
-    { label: 'Tier', a: 'UNCOMMON', b: 'RARE', rarity: true, delay: 9000 },
-  ];
-
-  steps.forEach(step => {
-    setTimeout(() => {
-      ['a','b'].forEach(p => {
-        const val = p === 'a' ? step.a : step.b;
-        const card = p === 'a' ? mockCardA : mockCardB;
-
-        // Flash the zone background
-        const zone = document.getElementById('zone-' + p);
-        zone.classList.remove('reveal-flash');
-        void zone.offsetWidth; // force reflow to restart animation
-        zone.classList.add('reveal-flash');
-
-        // Show the reveal stage
-        const revealEl = document.getElementById('reveal-' + p);
-        revealEl.style.display = 'flex';
-        revealEl.style.flexDirection = 'column';
-        revealEl.style.alignItems = 'center';
-        revealEl.style.justifyContent = 'center';
-
-        // Animate label in — clone to restart animation
-        const labelEl = document.getElementById('reveal-label-' + p);
-        labelEl.textContent = step.label.toUpperCase();
-        labelEl.style.animation = 'none';
-        void labelEl.offsetWidth;
-        labelEl.style.animation = '';
-
-        // Punch the value in
-        const rv = document.getElementById('reveal-value-' + p);
-        rv.style.animation = 'none';
-        void rv.offsetWidth;
-        rv.textContent = val;
-        rv.className = 'reveal-value';
-        if (step.rarity) rv.classList.add(card.rarity);
-        // Re-trigger animation by removing and re-adding class
-        rv.style.animation = '';
-      });
-    }, step.delay);
-  });
-
-  setTimeout(() => showFinalCards(), 12000);
-}
+// openPacks and simulateReveal removed —
+// server drives the reveal sequence via openingStart / revealStage / revealFinal events.
 
 function showFinalCards() {
   document.getElementById('pack-icon').classList.remove('opening');
 
-  // Stagger the two cards slightly for dramatic effect
-  ['a','b'].forEach((p, i) => {
-    setTimeout(() => {
-      const card = p === 'a' ? mockCardA : mockCardB;
-      document.getElementById('reveal-' + p).style.display = 'none';
+  ['a','b'].forEach((p) => {
+    const card = p === 'a' ? currentCardA : currentCardB;
+    document.getElementById('reveal-' + p).style.display = 'none';
 
-      const finalEl = document.getElementById('final-' + p);
-      finalEl.style.display = 'flex';
-      // Remove then re-add animation class to restart it
-      finalEl.classList.remove('final-card-enter');
-      void finalEl.offsetWidth;
-      finalEl.classList.add('final-card-enter');
+    const finalEl = document.getElementById('final-' + p);
+    finalEl.style.display = 'flex';
+    finalEl.classList.remove('final-card-enter');
+    void finalEl.offsetWidth;
+    finalEl.classList.add('final-card-enter');
 
-      document.getElementById('cardname-' + p).textContent = card.name;
-      document.getElementById('cardval-' + p).textContent = '$' + card.value.toFixed(2);
-      const rarEl = document.getElementById('cardrar-' + p);
-      rarEl.textContent = card.rarity.charAt(0).toUpperCase() + card.rarity.slice(1);
-      rarEl.className = 'rarity-tag ' + card.rarity;
+    document.getElementById('cardname-' + p).textContent = card.name;
+    document.getElementById('cardval-' + p).textContent = '$' + card.value.toFixed(2);
+    const rarEl = document.getElementById('cardrar-' + p);
+    rarEl.textContent = card.rarity.charAt(0).toUpperCase() + card.rarity.slice(1);
+    rarEl.className = 'rarity-tag ' + card.rarity;
 
-      document.getElementById('pull-empty-' + p).style.display = 'none';
-      document.getElementById('pull-row-' + p).style.display = 'flex';
-      document.getElementById('pull-thumb-' + p).textContent = '\uD83C\uDCCF';
-      document.getElementById('pull-name-' + p).textContent = card.name;
-      document.getElementById('pull-val-' + p).textContent = '$' + card.value.toFixed(2);
-    }, 0); // both simultaneously
+    document.getElementById('pull-empty-' + p).style.display = 'none';
+    document.getElementById('pull-row-' + p).style.display = 'flex';
+    document.getElementById('pull-thumb-' + p).textContent = '\uD83C\uDCCF';
+    document.getElementById('pull-name-' + p).textContent = card.name;
+    document.getElementById('pull-val-' + p).textContent = '$' + card.value.toFixed(2);
   });
 
   setTimeout(() => determineWinner(), 1000);
 }
 
 function determineWinner() {
-  const aVal = mockCardA.value;
-  const bVal = mockCardB.value;
+  const aVal = currentCardA.value;
+  const bVal = currentCardB.value;
 
   if (aVal === bVal) {
     document.getElementById('zone-a').classList.add('winner');
@@ -1391,8 +1407,8 @@ function showResult(outcome, aVal, bVal) {
 
   // Work out which side pulled higher and who guessed correctly — do this FIRST
   // so we can use it for headline, trophy, and card grid
-  const cardA = mockCardA;
-  const cardB = mockCardB;
+  const cardA = currentCardA;
+  const cardB = currentCardB;
   const higherSideRole = aVal >= bVal ? 'A' : 'B'; // role that pulled the higher card
   const higherCard  = aVal >= bVal ? cardA : cardB;
   const lowerCard   = aVal >= bVal ? cardB : cardA;
@@ -1496,8 +1512,8 @@ function showResult(outcome, aVal, bVal) {
   if (pickB === 'B') bCardPickers.push(nameB);
 
   document.getElementById('result-cards-grid').innerHTML =
-    cardHTML(mockCardA, nameA, aIsCorrect, aCardPickers)
-  + cardHTML(mockCardB, nameB, bIsCorrect, bCardPickers);
+    cardHTML(currentCardA, nameA, aIsCorrect, aCardPickers)
+  + cardHTML(currentCardB, nameB, bIsCorrect, bCardPickers);
 
   // transition to results page
   setTimeout(() => {
@@ -1507,6 +1523,11 @@ function showResult(outcome, aVal, bVal) {
 }
 
 function showLobby() {
+  if (currentGameId && isSpectator) {
+    socket.emit('leaveSpectate', { gameId: currentGameId });
+  }
+  currentGameId = null;
+  currentViewingGame = null;
   document.getElementById('page-game').classList.remove('active');
   document.getElementById('page-result').classList.remove('active');
   document.getElementById('page-lobby').classList.add('active');
@@ -1531,7 +1552,14 @@ function playAgainFromResult() {
   setTimeout(() => openCreateModal(), 150);
 }
 
-renderGames();
+// Fetch lobby on load, then keep live via lobbyUpdate socket event
+fetch(SERVER_URL + '/api/lobby')
+  .then(r => r.json())
+  .then(games => {
+    mockGames = games.map(g => ({ ...g, spectators: g.spectatorCount || 0 }));
+    renderGames();
+  })
+  .catch(() => renderGames()); // show empty lobby if server unreachable
 </script>
 </body>
 </html>
