@@ -929,10 +929,18 @@ socket.on('phaseSynced', ({ status }) => {
 function renderGames() {
   const grid = document.getElementById('games-grid');
   const filtered = currentFilter === 'all' ? mockGames : mockGames.filter(g => {
-    if (currentFilter === 'open') return g.status === 'open';
-    if (currentFilter === 'live') return g.status === 'live';
+    if (currentFilter === 'open') return g.status === 'open' || g.status === 'waiting';
+    if (currentFilter === 'live') return g.status === 'live' || g.status === 'selection' || g.status === 'opening' || g.status === 'revealing';
     return true;
   });
+
+  // Update lobby stat pills from real data
+  const liveCount    = mockGames.filter(g => ['live','selection','opening','revealing'].includes(g.status)).length;
+  const waitingCount = mockGames.filter(g => g.status === 'waiting' || (g.status === 'open' && !g.playerB)).length;
+  const statActive  = document.getElementById('stat-active');
+  const statWaiting = document.getElementById('stat-waiting');
+  if (statActive)  statActive.textContent  = liveCount;
+  if (statWaiting) statWaiting.textContent = waitingCount;
 
   if (!filtered.length) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><h3>No games found</h3><p>Create one to get started.</p></div>`;
@@ -940,8 +948,8 @@ function renderGames() {
   }
 
   grid.innerHTML = filtered.map(g => {
-    const isOpen = g.status === 'open' && !g.playerB;
-    const isLive = g.status === 'live';
+    const isOpen = (g.status === 'open' || g.status === 'waiting') && !g.playerB;
+    const isLive = ['live','selection','opening','revealing','result'].includes(g.status);
     // Join button: purple+clickable when open, ghost+non-functional when live
     const joinBtn = isOpen
       ? `<button class="btn btn-primary" style="padding:6px 18px;font-size:13px;font-weight:600;flex-shrink:0" onclick="joinGame(${g.id}, event)">Join →</button>`
