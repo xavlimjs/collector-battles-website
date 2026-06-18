@@ -516,12 +516,14 @@
           <button class="tab active" onclick="filterGames('all',this)">All</button>
           <button class="tab" onclick="filterGames('open',this)">Open</button>
           <button class="tab" onclick="filterGames('live',this)">Live</button>
+          <button class="tab" id="tab-past" onclick="filterGames('past',this)">Past Battles</button>
         </div>
       </div>
       <button class="btn btn-primary" onclick="openCreateModal()">+ Create Game</button>
     </div>
 
     <div class="games-grid" id="games-grid"></div>
+    <div id="past-battles-panel" style="display:none"></div>
   </div>
 </div>
 
@@ -857,18 +859,35 @@ socket.on('opponentJoined', ({ game }) => {
   // prepCountdown events will fill result-indicator next
 });
 
-// Server kicks off the authoritative 10s timer — overlays revealed here for both players
+// Server kicks off the authoritative 10s timer — overlays revealed here for players only
 socket.on('selectionStart', ({ duration }) => {
-  document.getElementById('overlay-a').classList.remove('hidden');
-  document.getElementById('overlay-b').classList.remove('hidden');
   document.getElementById('result-indicator').style.display = 'none';
-  document.getElementById('timer-wrap').style.display = 'block';
-  setupSelectionOverlays();
-  startVisualTimer(duration);
+  if (!isSpectator) {
+    document.getElementById('overlay-a').classList.remove('hidden');
+    document.getElementById('overlay-b').classList.remove('hidden');
+    document.getElementById('timer-wrap').style.display = 'block';
+    setupSelectionOverlays();
+    startVisualTimer(duration);
+  } else {
+    // Spectators see a neutral "players are picking" state with the timer
+    document.getElementById('overlay-a').classList.add('hidden');
+    document.getElementById('overlay-b').classList.add('hidden');
+    document.getElementById('timer-wrap').style.display = 'block';
+    startVisualTimer(duration);
+    document.getElementById('result-indicator').style.display = 'block';
+    document.getElementById('result-indicator').innerHTML = `
+      <div style="text-align:center;padding:4px 0">
+        <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">Players are picking</div>
+      </div>`;
+  }
 });
 
 // 5-second prep countdown before selection starts
 socket.on('prepCountdown', ({ seconds }) => {
+  // Spectators see the countdown too — just never see pick buttons
+  document.getElementById('overlay-a').classList.add('hidden');
+  document.getElementById('overlay-b').classList.add('hidden');
+  document.getElementById('timer-wrap').style.display = 'none';
   const ri = document.getElementById('result-indicator');
   if (seconds === 0) {
     ri.style.display = 'none';
@@ -883,13 +902,18 @@ socket.on('prepCountdown', ({ seconds }) => {
 });
 
 // Someone locked in — show feedback but don't reveal pick value yet
-socket.on('pickLocked', ({ side }) => {
-  const isMe = side === myRole;
-  if (isMe) {
-    document.getElementById('lock-wrap').style.display = 'flex';
-    document.getElementById('lock-you').classList.add('show');
-  } else {
-    document.getElementById('lock-wrap').style.display = 'flex';
+socket.on('pickLocked', ({ side, firstPickSide }) => {
+  const nameA = document.getElementById('name-a').textContent;
+  const nameB = document.getElementById('name-b').textContent;
+  const firstPickerName = firstPickSide === 'A' ? nameA : nameB;
+
+  document.getElementById('lock-wrap').style.display = 'flex';
+
+  // Show who picked first
+  document.getElementById('lock-you').textContent = `⚡ ${firstPickerName} picked first`;
+  document.getElementById('lock-you').classList.add('show');
+
+  if (side !== myRole && !isSpectator) {
     document.getElementById('lock-opp').textContent = '⏳ Opponent picking...';
     document.getElementById('lock-opp').classList.add('show');
   }
@@ -902,20 +926,24 @@ socket.on('selectionResult', ({ firstPickSide, finalPickA, finalPickB }) => {
   pickB = finalPickB;
   firstPick = firstPickSide;
 
-  // Highlight the correct pick button for this player
-  const myPick = myRole === 'A' ? pickA : pickB;
-  const myZone = myRole.toLowerCase();
-  if (myPick === myRole) {
-    document.getElementById(`pick-${myZone}-self`).classList.add('selected');
-  } else {
-    document.getElementById(`pick-${myZone}-opp`).classList.add('selected');
-  }
+  const nameA = document.getElementById('name-a').textContent;
+  const nameB = document.getElementById('name-b').textContent;
+  const firstPickerName = firstPickSide === 'A' ? nameA : nameB;
 
-  document.getElementById('lock-opp').textContent = '✓ Opponent locked in';
-  document.getElementById('lock-opp').classList.add('show');
-  document.getElementById('lock-opp').style.background = 'var(--green-dim)';
-  document.getElementById('lock-opp').style.color = 'var(--green)';
-  showBetSummary();
+  // Hide timer immediately — both picks are in
+  document.getElementById('timer-wrap').style.display = 'none';
+
+  // Hide pick overlays for players
+  if (!isSpectator) {
+    document.getElementById('lock-you').textContent = `⚡ ${firstPickerName} picked first`;
+    document.getElementById('lock-you').classList.add('show');
+    document.getElementById('lock-opp').textContent = '✓ Both locked in';
+    document.getElementById('lock-opp').classList.add('show');
+    document.getElementById('lock-opp').style.background = 'var(--green-dim)';
+    document.getElementById('lock-opp').style.color = 'var(--green)';
+    showBetSummary();
+  }
+  // openingStart event follows shortly from the server
 });
 
 // Server signals packs are opening
@@ -975,27 +1003,114 @@ socket.on('revealFinal', ({ cardA, cardB, winner }) => {
   showFinalCards();
 });
 
-// A player disconnected mid-game
-socket.on('playerDisconnected', ({ message }) => {
-  alert(message); // simple for now — Phase 6 will handle this gracefully
-  showLobby();
+// A player disconnected mid-game — game continues, show a notice
+socket.on('playerDisconnected', ({ side, wallet, message }) => {
+  // Show a non-blocking toast instead of an alert
+  showToast(`${wallet} disconnected — game continues`, 'warning');
 });
 
 // Spectator: synced to current phase when joining a live game
-socket.on('phaseSynced', ({ status }) => {
-  console.log('[spectate] synced to phase:', status);
+socket.on('phaseSynced', ({ status, pickA: sPickA, pickB: sPickB, firstPickSide: sFPS, result: sResult }) => {
+  if (!isSpectator) return;
+
+  const nameA = document.getElementById('name-a').textContent;
+  const nameB = document.getElementById('name-b').textContent;
+
+  // Always hide pick overlays for spectators
+  document.getElementById('overlay-a').classList.add('hidden');
+  document.getElementById('overlay-b').classList.add('hidden');
+  document.getElementById('timer-wrap').style.display = 'none';
+
+  if (status === 'waiting') {
+    // Nothing to show — spectator landed on an open game
+    return;
+  }
+
+  if (status === 'selection') {
+    // Battle is in the pick phase — show a neutral waiting view
+    document.getElementById('result-indicator').style.display = 'block';
+    document.getElementById('result-indicator').innerHTML = `
+      <div style="text-align:center;padding:8px 0">
+        <div style="font-size:13px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Players are picking</div>
+        <div style="font-size:28px">⚔️</div>
+        ${sPickA || sPickB ? `<div style="font-size:12px;color:var(--purple-light);margin-top:8px">Someone locked in — waiting on opponent...</div>` : ''}
+      </div>`;
+    return;
+  }
+
+  if (status === 'opening' || status === 'revealing') {
+    // Picks are done — show who picked what and let revealStage events drive the rest
+    pickA = sPickA; pickB = sPickB; firstPick = sFPS;
+    if (sFPS) {
+      const firstPickerName = sFPS === 'A' ? nameA : nameB;
+      document.getElementById('result-indicator').style.display = 'block';
+      document.getElementById('result-indicator').innerHTML = `
+        <div style="font-size:12px;color:var(--text-muted);text-align:center;line-height:1.8">
+          <div style="margin-bottom:4px"><span style="color:var(--text-primary);font-weight:600">${nameA}</span> bet ${sPickA === 'A' ? 'themselves' : nameB} pulls higher</div>
+          <div style="margin-bottom:4px"><span style="color:var(--text-primary);font-weight:600">${nameB}</span> bet ${sPickB === 'B' ? 'themselves' : nameA} pulls higher</div>
+          <div style="font-size:11px;color:var(--purple-light)">⚡ ${firstPickerName} picked first</div>
+        </div>`;
+    }
+    document.getElementById('pack-icon').classList.add('opening');
+    document.getElementById('pack-status-label').style.display = 'block';
+    return;
+  }
+
+  if (status === 'result' && sResult) {
+    // Battle already finished — show results immediately
+    currentCardA = sResult.cardA;
+    currentCardB = sResult.cardB;
+    pickA = sPickA; pickB = sPickB;
+    showFinalCards();
+    setTimeout(() => {
+      document.getElementById('page-game').classList.remove('active');
+      document.getElementById('page-result').classList.add('active');
+    }, 100);
+  }
 });
+
+// Opponent reconnected mid-game
+socket.on('playerRejoined', ({ side, wallet }) => {
+  showToast(`${wallet} reconnected`, 'success');
+});
+
+// Battle history response
+socket.on('battleHistory', ({ history }) => {
+  renderPastBattles(history);
+});
+
+// Reward claimed confirmation
+socket.on('rewardClaimed', ({ gameId }) => {
+  // Refresh history to update claim status
+  if (walletConnected) socket.emit('getBattleHistory', { wallet: walletAddress });
+});
+
+// ── Toast notifications ───────────────────────────────────────────
+function showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  const colors = { info: 'var(--purple)', warning: 'var(--amber)', success: 'var(--green)', error: 'var(--red)' };
+  toast.style.cssText = `
+    position:fixed;bottom:24px;right:24px;z-index:9999;
+    background:var(--bg-raised);border:1px solid ${colors[type] || colors.info};
+    border-radius:10px;padding:12px 18px;font-size:13px;color:var(--text-primary);
+    max-width:320px;box-shadow:0 4px 20px rgba(0,0,0,0.4);
+    animation:fadeSlideIn 0.3s ease-out both;
+  `;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.4s'; setTimeout(() => toast.remove(), 400); }, 3500);
+}
 
 function renderGames() {
   const grid = document.getElementById('games-grid');
   const filtered = currentFilter === 'all' ? mockGames : mockGames.filter(g => {
     if (currentFilter === 'open') return g.status === 'open' || g.status === 'waiting';
-    if (currentFilter === 'live') return g.status === 'live' || g.status === 'selection' || g.status === 'opening' || g.status === 'revealing';
+    if (currentFilter === 'live') return ['selection','opening','revealing'].includes(g.status);
     return true;
   });
 
   // Update lobby stat pills from real data
-  const liveCount    = mockGames.filter(g => ['live','selection','opening','revealing'].includes(g.status)).length;
+  const liveCount    = mockGames.filter(g => ['selection','opening','revealing'].includes(g.status)).length;
   const waitingCount = mockGames.filter(g => g.status === 'waiting' || (g.status === 'open' && !g.playerB)).length;
   const statActive  = document.getElementById('stat-active');
   const statWaiting = document.getElementById('stat-waiting');
@@ -1009,15 +1124,14 @@ function renderGames() {
 
   grid.innerHTML = filtered.map(g => {
     const isOpen = (g.status === 'open' || g.status === 'waiting') && !g.playerB;
-    const isLive = ['live','selection','opening','revealing','result'].includes(g.status);
+    const isLive = ['selection','opening','revealing'].includes(g.status);
+    const isEnded = g.status === 'result';
     const isMyGame = g.playerA === walletAddress || g.playerB === walletAddress;
 
-    // Join button logic:
-    // - Open game + not creator → "Join →" (purple)
-    // - Open game + creator    → "Return →" (ghost)
-    // - Live game              → "Watch →" (ghost)
     let joinBtn;
-    if (isOpen && !isMyGame) {
+    if (isEnded) {
+      joinBtn = `<span class="status-badge" style="background:rgba(239,68,68,0.12);color:var(--red);border:1px solid rgba(239,68,68,0.25)">● Ended</span>`;
+    } else if (isOpen && !isMyGame) {
       joinBtn = `<button class="btn btn-primary" style="padding:6px 18px;font-size:13px;font-weight:600;flex-shrink:0" onclick="joinGame('${g.id}', event)">Join →</button>`;
     } else if (isMyGame) {
       joinBtn = `<button class="btn btn-ghost" style="padding:6px 18px;font-size:13px;font-weight:600;flex-shrink:0" onclick="returnOrSpectate('${g.id}', event)">Return →</button>`;
@@ -1065,12 +1179,93 @@ function filterGames(f, el) {
   currentFilter = f;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  renderGames();
+
+  const grid = document.getElementById('games-grid');
+  const pastPanel = document.getElementById('past-battles-panel');
+
+  if (f === 'past') {
+    grid.style.display = 'none';
+    pastPanel.style.display = 'block';
+    if (walletConnected) {
+      socket.emit('getBattleHistory', { wallet: walletAddress });
+    } else {
+      pastPanel.innerHTML = `<div class="empty-state"><h3>Connect your wallet</h3><p>Connect your wallet to view your past battles.</p></div>`;
+    }
+  } else {
+    grid.style.display = 'grid';
+    pastPanel.style.display = 'none';
+    renderGames();
+  }
+}
+
+function renderPastBattles(history) {
+  const panel = document.getElementById('past-battles-panel');
+  if (!panel) return;
+
+  if (!history || history.length === 0) {
+    panel.innerHTML = `<div class="empty-state"><h3>No battles yet</h3><p>Your completed battles will appear here.</p></div>`;
+    return;
+  }
+
+  function rarityColor(r) {
+    if (r === 'epic')    return 'var(--epic)';
+    if (r === 'rare')    return 'var(--rare)';
+    if (r === 'uncommon') return 'var(--uncommon)';
+    return 'var(--common)';
+  }
+
+  panel.innerHTML = history.map(b => {
+    const iWon   = b.winner === b.mySide;
+    const isTie  = b.winner === 'tie';
+    const outcomeLabel = isTie ? 'TIE' : iWon ? 'WIN' : 'LOSS';
+    const outcomeColor = isTie ? 'var(--amber)' : iWon ? 'var(--green)' : 'var(--red)';
+    const outcomeBg    = isTie ? 'rgba(245,158,11,0.1)' : iWon ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
+    const date = new Date(b.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const needsClaim = b.claimStatus === 'pending' && (iWon || isTie);
+
+    return `
+    <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:12px;padding:18px 20px;margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <!-- Outcome badge -->
+      <div style="background:${outcomeBg};border:1px solid ${outcomeColor};border-radius:8px;padding:6px 14px;font-family:var(--font-display);font-size:18px;font-weight:700;color:${outcomeColor};min-width:64px;text-align:center;flex-shrink:0">
+        ${outcomeLabel}
+      </div>
+      <!-- Cards -->
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">${b.packType} · ${date}</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">YOUR CARD</div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${b.myCard.name}</div>
+            <div style="font-size:13px;font-weight:700;color:${rarityColor(b.myCard.rarity)};font-family:var(--font-display)">$${b.myCard.value.toFixed(2)}</div>
+          </div>
+          <div style="color:var(--text-muted);align-self:center;font-size:12px">vs</div>
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">OPPONENT</div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-secondary)">${b.oppCard.name}</div>
+            <div style="font-size:13px;font-weight:700;color:${rarityColor(b.oppCard.rarity)};font-family:var(--font-display)">$${b.oppCard.value.toFixed(2)}</div>
+          </div>
+        </div>
+      </div>
+      <!-- Claim button -->
+      <div style="flex-shrink:0">
+        ${needsClaim
+          ? `<button class="btn btn-success" style="padding:8px 18px;font-size:13px" onclick="claimReward('${b.gameId}')">Claim Reward</button>`
+          : b.claimStatus === 'claimed'
+            ? `<div style="font-size:12px;color:var(--green);font-weight:600">✓ Claimed</div>`
+            : `<div style="font-size:12px;color:var(--text-muted)">No reward</div>`
+        }
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function claimReward(gameId) {
+  if (!walletConnected) return;
+  socket.emit('claimReward', { gameId, wallet: walletAddress });
 }
 
 function showConnectPrompt() {
   walletConnected = true;
-  // Generate a unique mock wallet per tab so two tabs can play each other during testing
   const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
   walletAddress = `Test...${suffix}`;
   document.getElementById('nav-right').innerHTML = `
@@ -1079,6 +1274,7 @@ function showConnectPrompt() {
   `;
   document.getElementById('modal-wallet-display').textContent = walletAddress;
   renderGames();
+  socket.emit('getBattleHistory', { wallet: walletAddress });
 }
 
 function openCreateModal() {
@@ -1189,6 +1385,7 @@ function cardClick(id, event) {
   if (!walletConnected) { showConnectPrompt(); return; }
   const g = mockGames.find(x => x.id === id);
   if (!g) return;
+  if (g.status === 'result') return; // ended — don't enter
   const isMyGame = g.playerA === walletAddress || g.playerB === walletAddress;
   if (isMyGame) {
     returnOrSpectate(id, event);
@@ -1419,23 +1616,16 @@ function launchGame(pA, pB, packName, isOpenGame) {
   }
 
   if (isSpectator && !isOpenGame) {
-    // Spectating a live game
+    // Spectating a live game — hide everything, phaseSynced will set the correct state
     document.getElementById('overlay-a').classList.add('hidden');
     document.getElementById('overlay-b').classList.add('hidden');
-    setTimeout(() => {
-      pickA = 'A'; pickB = 'B'; firstPick = 'A';
-      const nameA = document.getElementById('name-a').textContent;
-      const nameB = document.getElementById('name-b').textContent;
-      const ri = document.getElementById('result-indicator');
-      ri.style.display = 'block';
-      ri.innerHTML = '<div style="font-size:12px;color:var(--text-muted);text-align:center;line-height:2">'
-        + '<span style="color:var(--text-primary);font-weight:600">' + nameA + '</span> bet themselves pulls higher<br>'
-        + '<span style="color:var(--text-primary);font-weight:600">' + nameB + '</span> bet themselves pulls higher<br>'
-        + '<span style="font-size:11px">(Priority assigned — picks locked)</span>'
-        + '</div>';
-      document.getElementById('timer-wrap').style.display = 'none';
-      setTimeout(() => simulateReveal(), 1500);
-    }, 1500);
+    document.getElementById('timer-wrap').style.display = 'none';
+    document.getElementById('result-indicator').style.display = 'block';
+    document.getElementById('result-indicator').innerHTML = `
+      <div style="text-align:center;padding:8px 0">
+        <div style="font-size:28px;margin-bottom:8px">👁</div>
+        <div style="font-size:13px;color:var(--text-muted)">Joining live battle...</div>
+      </div>`;
 
   } else if (!pB) {
     // Creator waiting for opponent — show waiting state, NO timer
@@ -1468,8 +1658,10 @@ function launchGame(pA, pB, packName, isOpenGame) {
     document.getElementById('timer-wrap').style.display = 'none';
 
   } else {
-    // Both players present — start selection
-    startSelectionPhase();
+    // Both players present — hide overlays and timer until prepCountdown + selectionStart fire
+    document.getElementById('overlay-a').classList.add('hidden');
+    document.getElementById('overlay-b').classList.add('hidden');
+    document.getElementById('timer-wrap').style.display = 'none';
   }
 }
 
