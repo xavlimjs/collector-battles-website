@@ -1001,12 +1001,22 @@ function renderGames() {
   grid.innerHTML = filtered.map(g => {
     const isOpen = (g.status === 'open' || g.status === 'waiting') && !g.playerB;
     const isLive = ['live','selection','opening','revealing','result'].includes(g.status);
-    // Join button: purple+clickable when open, ghost+non-functional when live
-    const joinBtn = isOpen
-      ? `<button class="btn btn-primary" style="padding:6px 18px;font-size:13px;font-weight:600;flex-shrink:0" onclick="joinGame(${g.id}, event)">Join →</button>`
-      : `<button class="btn btn-ghost" style="padding:6px 18px;font-size:13px;font-weight:500;flex-shrink:0;opacity:0.5;cursor:default" onclick="spectateGame(${g.id}, event)">Join →</button>`;
+    const isMyGame = g.playerA === walletAddress || g.playerB === walletAddress;
+
+    // Join button logic:
+    // - Open game + not creator → "Join →" (purple)
+    // - Open game + creator    → "Return →" (ghost)
+    // - Live game              → "Watch →" (ghost)
+    let joinBtn;
+    if (isOpen && !isMyGame) {
+      joinBtn = `<button class="btn btn-primary" style="padding:6px 18px;font-size:13px;font-weight:600;flex-shrink:0" onclick="joinGame('${g.id}', event)">Join →</button>`;
+    } else if (isMyGame) {
+      joinBtn = `<button class="btn btn-ghost" style="padding:6px 18px;font-size:13px;font-weight:600;flex-shrink:0" onclick="returnOrSpectate('${g.id}', event)">Return →</button>`;
+    } else {
+      joinBtn = `<button class="btn btn-ghost" style="padding:6px 18px;font-size:13px;font-weight:500;flex-shrink:0" onclick="spectateGame('${g.id}', event)">Watch →</button>`;
+    }
     return `
-    <div class="game-card ${isLive ? 'live' : ''}" onclick="spectateGame(${g.id}, event)" style="cursor:pointer;display:flex;flex-direction:column;gap:16px;padding:22px 20px">
+    <div class="game-card ${isLive ? 'live' : ''}" onclick="cardClick('${g.id}', event)" style="cursor:pointer;display:flex;flex-direction:column;gap:16px;padding:22px 20px">
 
       <!-- ROW 1: Players -->
       <div style="display:flex;align-items:center;gap:8px">
@@ -1164,6 +1174,39 @@ function createGame() {
   // Hash URL set once server confirms via gameCreated
 }
 
+// Clicking the card body — smart routing based on who you are
+function cardClick(id, event) {
+  if (event && event.target.closest('button')) return;
+  if (!walletConnected) { showConnectPrompt(); return; }
+  const g = mockGames.find(x => x.id === id);
+  if (!g) return;
+  const isMyGame = g.playerA === walletAddress || g.playerB === walletAddress;
+  if (isMyGame) {
+    returnOrSpectate(id, event);
+  } else {
+    spectateGame(id, event);
+  }
+}
+
+// Creator or existing player returning to their own game
+function returnOrSpectate(id, event) {
+  if (event) event.stopPropagation();
+  if (!walletConnected) { showConnectPrompt(); return; }
+  const g = mockGames.find(x => x.id === id);
+  if (!g) return;
+  myRole = g.playerA === walletAddress ? 'A' : 'B';
+  isSpectator = false;
+  currentViewingGame = g;
+  currentGameId = g.id;
+  activeGameId = g.id;
+  activeGamePack = g.packType;
+  document.getElementById('return-banner').classList.remove('visible');
+  document.body.classList.remove('has-return-banner');
+  window.location.hash = `/battle/${g.id}`;
+  const isOpen = (g.status === 'waiting' || g.status === 'open') && !g.playerB;
+  launchGame(g.playerA, g.playerB, g.packType, isOpen);
+}
+
 function spectateGame(id, event) {
   if (event && event.target.closest('button')) return;
   if (!walletConnected) { showConnectPrompt(); return; }
@@ -1173,7 +1216,9 @@ function spectateGame(id, event) {
   currentViewingGame = g;
   currentGameId = g.id;
   socket.emit('spectateGame', { gameId: g.id });
-  launchGame(g.playerA, g.playerB, g.packType, g.status === 'waiting');
+  window.location.hash = `/battle/${g.id}`;
+  const isOpen = (g.status === 'waiting' || g.status === 'open') && !g.playerB;
+  launchGame(g.playerA, g.playerB, g.packType, isOpen);
 }
 
 function joinGame(id, event) {
@@ -1181,8 +1226,9 @@ function joinGame(id, event) {
   if (!walletConnected) { showConnectPrompt(); return; }
   const g = mockGames.find(x => x.id === id);
   if (!g) return;
-  if (g.playerA === walletAddress) {
-    alert('You created this game — share the lobby link for someone else to join.');
+  // Creator or existing player clicking Join → just return to game
+  if (g.playerA === walletAddress || g.playerB === walletAddress) {
+    returnOrSpectate(id, event);
     return;
   }
   isSpectator = false;
@@ -1740,8 +1786,13 @@ function handleHashRoute() {
       const g = mockGames.find(x => x.id === gameId);
       if (g) {
         if (!walletConnected) showConnectPrompt();
-        if (g.status === 'waiting' && g.playerA !== walletAddress) {
-          joinGame(gameId, null);
+        const isMyGame = g.playerA === walletAddress || g.playerB === walletAddress;
+        const isOpen = (g.status === 'waiting' || g.status === 'open') && !g.playerB;
+        if (isMyGame) {
+          returnOrSpectate(gameId, null);
+        } else if (isOpen) {
+          // Don't auto-join from a shared link — show spectate view with join option
+          spectateGame(gameId, null);
         } else {
           spectateGame(gameId, null);
         }
