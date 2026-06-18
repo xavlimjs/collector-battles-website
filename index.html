@@ -844,19 +844,25 @@ socket.on('opponentJoined', ({ game }) => {
     return;
   }
 
-  // Already on battle page — update UI
+  // Already on battle page — update opponent info, but keep overlays hidden until prep finishes
   document.getElementById('name-b').textContent = game.playerB.wallet;
   document.getElementById('avatar-b').textContent = game.playerB.wallet.charAt(0).toUpperCase();
   document.getElementById('avatar-b').style.borderStyle = 'solid';
   document.getElementById('avatar-b').style.color = '';
   document.getElementById('pull-label-b').textContent = game.playerB.wallet.toUpperCase() + ' PULLS';
-  document.getElementById('result-indicator').style.display = 'none';
-  setupSelectionOverlays();
-  // prepCountdown event drives the 5s prep, then selectionStart fires
+  // Hide both overlays — prepCountdown will show, selectionStart will reveal overlays
+  document.getElementById('overlay-a').classList.add('hidden');
+  document.getElementById('overlay-b').classList.add('hidden');
+  document.getElementById('timer-wrap').style.display = 'none';
+  // prepCountdown events will fill result-indicator next
 });
 
-// Server kicks off the authoritative 10s timer
+// Server kicks off the authoritative 10s timer — overlays revealed here for both players
 socket.on('selectionStart', ({ duration }) => {
+  document.getElementById('overlay-a').classList.remove('hidden');
+  document.getElementById('overlay-b').classList.remove('hidden');
+  document.getElementById('result-indicator').style.display = 'none';
+  document.getElementById('timer-wrap').style.display = 'block';
   setupSelectionOverlays();
   startVisualTimer(duration);
 });
@@ -864,13 +870,16 @@ socket.on('selectionStart', ({ duration }) => {
 // 5-second prep countdown before selection starts
 socket.on('prepCountdown', ({ seconds }) => {
   const ri = document.getElementById('result-indicator');
+  if (seconds === 0) {
+    ri.style.display = 'none';
+    return;
+  }
   ri.style.display = 'block';
   ri.innerHTML = `<div style="text-align:center;padding:8px 0">
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Battle starting in</div>
     <div style="font-family:var(--font-display);font-size:64px;font-weight:700;color:var(--purple-light);line-height:1">${seconds}</div>
     <div style="font-size:12px;color:var(--text-muted);margin-top:6px">Get ready to pick!</div>
   </div>`;
-  if (seconds === 0) ri.style.display = 'none';
 });
 
 // Someone locked in — show feedback but don't reveal pick value yet
@@ -1618,8 +1627,8 @@ function showResult(outcome, aVal, bVal) {
                     : 'TIE';
   const myName   = myRole === 'A' ? document.getElementById('name-a').textContent : document.getElementById('name-b').textContent;
   const oppName  = myRole === 'A' ? document.getElementById('name-b').textContent : document.getElementById('name-a').textContent;
-  const myCard   = myRole === 'A' ? mockCardA : mockCardB;
-  const oppCard  = myRole === 'A' ? mockCardB : mockCardA;
+  const myCard   = myRole === 'A' ? currentCardA : currentCardB;
+  const oppCard  = myRole === 'A' ? currentCardB : currentCardA;
   const myVal    = myRole === 'A' ? aVal : bVal;
   const oppVal   = myRole === 'A' ? bVal : aVal;
 
@@ -1784,18 +1793,18 @@ function handleHashRoute() {
     // Wait for lobby to load then try to join/spectate
     const tryRoute = () => {
       const g = mockGames.find(x => x.id === gameId);
-      if (g) {
-        if (!walletConnected) showConnectPrompt();
-        const isMyGame = g.playerA === walletAddress || g.playerB === walletAddress;
-        const isOpen = (g.status === 'waiting' || g.status === 'open') && !g.playerB;
-        if (isMyGame) {
-          returnOrSpectate(gameId, null);
-        } else if (isOpen) {
-          // Don't auto-join from a shared link — show spectate view with join option
-          spectateGame(gameId, null);
-        } else {
-          spectateGame(gameId, null);
-        }
+      if (!g) {
+        // Battle not found — ended, cancelled, or invalid ID
+        window.location.hash = '';
+        return;
+      }
+      if (!walletConnected) showConnectPrompt();
+      const isMyGame = g.playerA === walletAddress || g.playerB === walletAddress;
+      const isOpen = (g.status === 'waiting' || g.status === 'open') && !g.playerB;
+      if (isMyGame) {
+        returnOrSpectate(gameId, null);
+      } else {
+        spectateGame(gameId, null);
       }
     };
     // Give lobby a moment to populate from server
