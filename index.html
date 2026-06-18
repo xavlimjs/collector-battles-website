@@ -1749,8 +1749,8 @@ function showLobby() {
   }
   currentGameId = null;
   currentViewingGame = null;
-  // Clear hash only if not an active game (creator going back to lobby keeps hash)
-  if (!activeGameId) window.location.hash = '';
+  // Always clear the battle hash when in the lobby
+  window.location.hash = '';
   document.getElementById('page-game').classList.remove('active');
   document.getElementById('page-result').classList.remove('active');
   document.getElementById('page-lobby').classList.add('active');
