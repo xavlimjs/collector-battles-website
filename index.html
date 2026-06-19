@@ -1166,7 +1166,7 @@ function renderGames() {
           <div class="meta-value green" style="font-size:16px">$${(g.packCost * 2).toLocaleString()}</div>
         </div>
         <div style="margin-left:auto;display:flex;flex-direction:column;align-items:center;gap:10px">
-          <span class="status-badge ${isLive ? 'status-live' : 'status-open'}">${isLive ? '● Live' : 'Open'}</span>
+          ${!isEnded ? `<span class="status-badge ${isLive ? 'status-live' : 'status-open'}">${isLive ? '● Live' : 'Open'}</span>` : ''}
           ${joinBtn}
         </div>
       </div>
