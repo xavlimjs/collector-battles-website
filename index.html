@@ -930,11 +930,13 @@ socket.on('selectionResult', ({ firstPickSide, finalPickA, finalPickB }) => {
   const nameB = document.getElementById('name-b').textContent;
   const firstPickerName = firstPickSide === 'A' ? nameA : nameB;
 
-  // Hide timer immediately — both picks are in
   document.getElementById('timer-wrap').style.display = 'none';
 
-  // Hide pick overlays for players
-  if (!isSpectator) {
+  if (isSpectator) {
+    // Spectators see named pick summary
+    document.getElementById('lock-wrap').style.display = 'none';
+    showBetSummary();
+  } else {
     document.getElementById('lock-you').textContent = `⚡ ${firstPickerName} picked first`;
     document.getElementById('lock-you').classList.add('show');
     document.getElementById('lock-opp').textContent = '✓ Both locked in';
@@ -943,7 +945,6 @@ socket.on('selectionResult', ({ firstPickSide, finalPickA, finalPickB }) => {
     document.getElementById('lock-opp').style.color = 'var(--green)';
     showBetSummary();
   }
-  // openingStart event follows shortly from the server
 });
 
 // Server signals packs are opening
@@ -1039,18 +1040,9 @@ socket.on('phaseSynced', ({ status, pickA: sPickA, pickB: sPickB, firstPickSide:
   }
 
   if (status === 'opening' || status === 'revealing') {
-    // Picks are done — show who picked what and let revealStage events drive the rest
     pickA = sPickA; pickB = sPickB; firstPick = sFPS;
-    if (sFPS) {
-      const firstPickerName = sFPS === 'A' ? nameA : nameB;
-      document.getElementById('result-indicator').style.display = 'block';
-      document.getElementById('result-indicator').innerHTML = `
-        <div style="font-size:12px;color:var(--text-muted);text-align:center;line-height:1.8">
-          <div style="margin-bottom:4px"><span style="color:var(--text-primary);font-weight:600">${nameA}</span> bet ${sPickA === 'A' ? 'themselves' : nameB} pulls higher</div>
-          <div style="margin-bottom:4px"><span style="color:var(--text-primary);font-weight:600">${nameB}</span> bet ${sPickB === 'B' ? 'themselves' : nameA} pulls higher</div>
-          <div style="font-size:11px;color:var(--purple-light)">⚡ ${firstPickerName} picked first</div>
-        </div>`;
-    }
+    document.getElementById('result-indicator').style.display = 'none';
+    showBetSummary(); // spectator-aware, uses real names
     document.getElementById('pack-icon').classList.add('opening');
     document.getElementById('pack-status-label').style.display = 'block';
     return;
@@ -1385,7 +1377,21 @@ function cardClick(id, event) {
   if (!walletConnected) { showConnectPrompt(); return; }
   const g = mockGames.find(x => x.id === id);
   if (!g) return;
-  if (g.status === 'result') return; // ended — don't enter
+
+  if (g.status === 'result') {
+    // Show results page for ended battles — spectate into results view
+    isSpectator = true;
+    currentViewingGame = g;
+    currentGameId = g.id;
+    window.location.hash = `/battle/${g.id}`;
+    socket.emit('spectateGame', { gameId: g.id });
+    // spectateJoined + phaseSynced will handle showing results
+    document.getElementById('page-lobby').classList.remove('active');
+    document.getElementById('page-game').classList.add('active');
+    launchGame(g.playerA, g.playerB, g.packType, false);
+    return;
+  }
+
   const isMyGame = g.playerA === walletAddress || g.playerB === walletAddress;
   if (isMyGame) {
     returnOrSpectate(id, event);
@@ -1746,19 +1752,33 @@ function makePick(player, choice) {
 // server now handles priority logic and auto-assignment via selectionResult event.
 
 function showBetSummary() {
+  const nameA = document.getElementById('name-a').textContent;
+  const nameB = document.getElementById('name-b').textContent;
   const fp = firstPick || 'A';
-  // From the perspective of the current player (myRole)
-  const myPick   = myRole === 'A' ? pickA   : pickB;
-  const oppPick  = myRole === 'A' ? pickB   : pickA;
-  const myPickStr  = myPick  === myRole        ? 'myself'         : 'my opponent';
-  const oppPickStr = oppPick === (myRole === 'A' ? 'B' : 'A') ? 'themselves' : 'me';
-  const iPicked1st = fp === myRole;
+  const firstPickerName = fp === 'A' ? nameA : nameB;
   const summary = document.getElementById('bet-summary');
   summary.style.display = 'block';
-  summary.innerHTML = `
-    <div style="margin-bottom:4px"><span class="bet-highlight">You</span> bet ${myPickStr} pulls higher</div>
-    <div style="margin-bottom:6px"><span class="bet-highlight">Opponent</span> bet ${oppPickStr} pulls higher</div>
-    <span style="font-size:11px;color:var(--text-muted)">(${iPicked1st ? 'You' : 'Opponent'} picked first — priority assigned)</span>`;
+
+  if (isSpectator) {
+    // Named framing for spectators
+    const aPickedStr = pickA === 'A' ? nameA : nameB;
+    const bPickedStr = pickB === 'B' ? nameB : nameA;
+    summary.innerHTML = `
+      <div style="margin-bottom:4px"><span class="bet-highlight">${nameA}</span> picked ${aPickedStr} pulls higher</div>
+      <div style="margin-bottom:6px"><span class="bet-highlight">${nameB}</span> picked ${bPickedStr} pulls higher</div>
+      <span style="font-size:11px;color:var(--text-muted)">(${firstPickerName} picked first — priority assigned)</span>`;
+  } else {
+    // "You / Opponent" framing for players
+    const myPick    = myRole === 'A' ? pickA : pickB;
+    const oppPick   = myRole === 'A' ? pickB : pickA;
+    const myPickStr  = myPick  === myRole                      ? 'myself'      : 'my opponent';
+    const oppPickStr = oppPick === (myRole === 'A' ? 'B' : 'A') ? 'themselves' : 'me';
+    const iPicked1st = fp === myRole;
+    summary.innerHTML = `
+      <div style="margin-bottom:4px"><span class="bet-highlight">You</span> bet ${myPickStr} pulls higher</div>
+      <div style="margin-bottom:6px"><span class="bet-highlight">Opponent</span> bet ${oppPickStr} pulls higher</div>
+      <span style="font-size:11px;color:var(--text-muted)">(${iPicked1st ? 'You' : 'Opponent'} picked first — priority assigned)</span>`;
+  }
 }
 
 // openPacks and simulateReveal removed —
@@ -2005,8 +2025,27 @@ function handleHashRoute() {
 }
 
 window.addEventListener('hashchange', () => {
-  if (!window.location.hash.includes('/battle/')) {
-    // Hash cleared — nothing to do
+  const hash = window.location.hash;
+  const onBattlePage = document.getElementById('page-game').classList.contains('active');
+  const onResultPage = document.getElementById('page-result').classList.contains('active');
+
+  if (!hash.includes('/battle/')) {
+    // Back button took us away from a battle URL — go to lobby
+    if (onBattlePage || onResultPage) {
+      // Don't cancel active games — just navigate to lobby view
+      clearInterval(timerInterval);
+      document.getElementById('page-game').classList.remove('active');
+      document.getElementById('page-result').classList.remove('active');
+      document.getElementById('page-lobby').classList.add('active');
+      const zbj = document.getElementById('zone-b-join');
+      if (zbj) zbj.style.display = 'none';
+      document.getElementById('return-banner').classList.remove('visible');
+      document.body.classList.remove('has-return-banner');
+      renderGames();
+    }
+  } else if (!onBattlePage) {
+    // Forward button or link pushed a battle hash while in lobby — route to it
+    handleHashRoute();
   }
 });
 
